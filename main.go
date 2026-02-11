@@ -3,6 +3,7 @@ package main
 //go:generate rsrc -ico icon.ico
 
 import (
+	"archive/zip"
 	"bytes"
 	_ "embed"
 	"encoding/binary"
@@ -14,7 +15,9 @@ import (
 	"image/draw"
 	"io"
 	"math"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -44,29 +47,69 @@ type AppSettings struct {
 	AssetsPath      string `json:"assets_path"`
 	TextureOutPath  string `json:"texture_out_path"`
 	MetadataOutPath string `json:"metadata_out_path"`
+	EchoVRDataPath  string `json:"echovr_data_path"`
+	BackupPath      string `json:"backup_path"`
 }
 
-// Global State
 var (
 	currentCList      cosmeticList
 	tintIndices       []int
 	filteredIndices   []int
 	selectedListIndex int = -1
 
-	// Flags
 	isLoadingEntry bool
 
-	// File Paths
-	tempFilePath = "temp_autosave.dat"
+
+	tempFilePath string 
 	settingsFile = "settings.json"
 	appSettings  AppSettings
+)
+
+const (
+	DefaultEchoPath = "./ready-at-dawn-echo-arena/_data/5932408047/rad15/win10"
+	PackageName     = "48037dc70b0ecab2"
+
+	// Base Directories
+	SettingsDir     = "Settings"
+	ExtractedDir    = "Settings/pcvr-extracted"
+	InputDir        = "Settings/input-pcvr"
+	OutputDir       = "Settings/output-both"
+	BackupDirName   = "Backup" // Folder name inside Settings
+
+	// 1. TINT FILE (Cosmetic List)
+	// Path: Settings/input-pcvr/0/3671295590506143214/4869319423857648486
+	TintFolder      = "0/3671295590506143214"
+	TintFileName    = "4869319423857648486"
+
+	// 2. THUMBNAIL TEXTURE (DDS)
+	// Path: Settings/input-pcvr/0/-4707359568332879775/[ID]
+	ThumbTexFolder  = "0/-4707359568332879775"
+
+	// 3. THUMBNAIL METADATA (Hex)
+	// Path: Settings/input-pcvr/0/5353709876897953952/[ID]
+	ThumbMetaFolder = "0/5353709876897953952"
 )
 
 func main() {
 	os.Setenv("FYNE_GL_VERSION", "2.1")
 
-	// 1. SETUP: Settings & Crash Recovery
+	os.MkdirAll(SettingsDir, 0755)
+
+	tempDir := filepath.Join(SettingsDir, "Temp")
+	os.MkdirAll(tempDir, 0755)
+
+	// Set temp file path
+	tempFilePath = filepath.Join(tempDir, "temp_autosave.dat")
+
 	loadSettings()
+	if appSettings.EchoVRDataPath == "" {
+		appSettings.EchoVRDataPath = DefaultEchoPath
+	}
+	if appSettings.AssetsPath == "" || appSettings.AssetsPath == "./thumbnails" {
+		appSettings.AssetsPath = filepath.Join(SettingsDir, "thumbnail")
+	}
+	saveSettings()
+
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("CRITICAL ERROR:", r)
@@ -74,13 +117,14 @@ func main() {
 		}
 	}()
 
+	go downloadAndExtractThumbnails()
+
 	a := app.New()
 	a.SetIcon(fyne.NewStaticResource("icon.ico", embeddedIcon))
 
-	w := a.NewWindow("Cosmetic Tint Editor (Safe Mode)")
-	w.Resize(fyne.NewSize(1100, 750))
+	w := a.NewWindow("Cosmetic Tint Editor")
+	w.Resize(fyne.NewSize(1100, 800))
 
-	// --- UI DEFINITIONS ---
 	statusLabel := widget.NewLabel("Status: Initializing...")
 
 	nameEntry := widget.NewEntry()
@@ -95,13 +139,11 @@ func main() {
 		thumbImage,
 	)
 
-	// HEX ENTRIES
 	primaryHex := widget.NewEntry()
 	primaryHex.PlaceHolder = "FFFFFF"
 	secondaryHex := widget.NewEntry()
 	secondaryHex.PlaceHolder = "FFFFFF"
 
-	// Validators
 	thumbIdEntry.Validator = func(s string) error {
 		_, err := strconv.ParseInt(s, 10, 64)
 		return err
@@ -148,7 +190,6 @@ func main() {
 		currentCList = cList
 	}
 
-	// --- LOGIC: APPLY CHANGES ---
 	applyChange := func(modifier func(*CTint)) {
 		if isLoadingEntry {
 			return
@@ -179,7 +220,6 @@ func main() {
 		saveToTemp()
 	}
 
-	// --- LISTENERS ---
 	onName := func(s string) { applyChange(func(t *CTint) { t.DisplayName = s }) }
 	onDesc := func(s string) { applyChange(func(t *CTint) { t.Description = s }) }
 
@@ -187,17 +227,6 @@ func main() {
 		if idStr == "" {
 			return
 		}
-		found := false
-
-		// 1. Check Output Path (Texture Folder)
-		if appSettings.TextureOutPath != "" {
-			tintedPath := filepath.Join(appSettings.TextureOutPath, idStr)
-			if _, err := os.Stat(tintedPath); err == nil {
-				found = true
-			}
-		}
-
-		// 2. Check Assets Path (Original .png)
 		if appSettings.AssetsPath != "" {
 			originalPath := filepath.Join(appSettings.AssetsPath, idStr+".png")
 			if _, err := os.Stat(originalPath); err == nil {
@@ -207,10 +236,8 @@ func main() {
 			}
 		}
 
-		if !found {
-			thumbImage.File = ""
-			thumbImage.Refresh()
-		}
+		thumbImage.File = ""
+		thumbImage.Refresh()
 	}
 
 	onThumb := func(s string) {
@@ -220,7 +247,6 @@ func main() {
 		}
 	}
 
-	// Helper to handle hex input
 	onHexChange := func(isPrimary bool) func(string) {
 		return func(s string) {
 			s = strings.TrimPrefix(s, "#")
@@ -261,23 +287,21 @@ func main() {
 
 	// --- THUMBNAIL GENERATOR ---
 	generateAndSaveThumbnail := func() {
-		if appSettings.TextureOutPath == "" || appSettings.MetadataOutPath == "" {
-			dialog.ShowInformation("Error", "Set both Output Texture and Output Metadata folders in settings.", w)
-			return
-		}
-		if thumbIdEntry.Text == "" {
-			dialog.ShowInformation("Error", "No Thumbnail ID set.", w)
+		// 1. Validate ID
+		idStr := thumbIdEntry.Text
+		if idStr == "" {
+			dialog.ShowInformation("Error", "No Thumbnail ID (Symbol) set.", w)
 			return
 		}
 
-		// 1. Load Embedded Template
+		// 2. Load Embedded Template
 		img, _, err := image.Decode(bytes.NewReader(embeddedTemplate))
 		if err != nil {
 			dialog.ShowError(fmt.Errorf("failed to decode embedded template: %v", err), w)
 			return
 		}
 
-		// 2. Colors
+		// 3. Colours Helper
 		parseColor := func(hexStr string) color.RGBA {
 			hexStr = strings.TrimPrefix(hexStr, "#")
 			b, _ := hex.DecodeString(hexStr)
@@ -288,6 +312,8 @@ func main() {
 		}
 		cPrim := parseColor(primaryHex.Text)
 		cSec := parseColor(secondaryHex.Text)
+		
+		// Original Colorus in Template to Replace
 		srcPrimary := color.RGBA{0x9F, 0x12, 0x13, 0xFF}
 		srcSecondary := color.RGBA{0xEC, 0xDB, 0x10, 0xFF}
 
@@ -298,7 +324,6 @@ func main() {
 			return math.Sqrt(rDiff*rDiff+gDiff*gDiff+bDiff*bDiff) < threshold
 		}
 
-		// 3. Create Tinted Image
 		bounds := img.Bounds()
 		dst := image.NewRGBA(bounds)
 
@@ -306,7 +331,9 @@ func main() {
 			for x := bounds.Min.X; x < bounds.Max.X; x++ {
 				srcC := img.At(x, y)
 				r, g, b, a := srcC.RGBA()
+				// Convert back to 8-bit
 				currColor := color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(a >> 8)}
+				
 				finalColor := currColor
 				if isSimilar(currColor, srcPrimary, 80.0) {
 					finalColor = color.RGBA{cPrim.R, cPrim.G, cPrim.B, currColor.A}
@@ -317,25 +344,316 @@ func main() {
 			}
 		}
 
-		// 4. Save DDS (Texture) - NO EXTENSION
-		outDdsPath := filepath.Join(appSettings.TextureOutPath, thumbIdEntry.Text)
+		// 5. Save DDS Texture
+		// Path: Settings/input-pcvr/0/-4707359568332879775/[ID]
+		texDir := filepath.Join(InputDir, ThumbTexFolder)
+		if err := os.MkdirAll(texDir, 0755); err != nil {
+			dialog.ShowError(fmt.Errorf("failed to create tex dir: %v", err), w)
+			return
+		}
+		
+		outDdsPath := filepath.Join(texDir, idStr)
 		_, err = writeDDS(outDdsPath, dst)
 		if err != nil {
-			dialog.ShowError(err, w)
+			dialog.ShowError(fmt.Errorf("failed to save DDS: %v", err), w)
 			return
 		}
 
-		// 5. Save Metadata File - NO EXTENSION
-		outMetaPath := filepath.Join(appSettings.MetadataOutPath, thumbIdEntry.Text)
+		// 6. Save Metadata File
+		// Path: Settings/input-pcvr/0/5353709876897953952/[ID]
+		metaDir := filepath.Join(InputDir, ThumbMetaFolder)
+		if err := os.MkdirAll(metaDir, 0755); err != nil {
+			dialog.ShowError(fmt.Errorf("failed to create meta dir: %v", err), w)
+			return
+		}
+
+		outMetaPath := filepath.Join(metaDir, idStr)
 		if err := writeMetadata(outMetaPath); err != nil {
-			dialog.ShowError(err, w)
+			dialog.ShowError(fmt.Errorf("failed to save metadata: %v", err), w)
 			return
 		}
 
-		statusLabel.SetText("Generated Texture & Meta: " + thumbIdEntry.Text)
+		dialog.ShowInformation("Success", "Thumbnail files generated in input folder.\nID: "+idStr, w)
+		statusLabel.SetText("Generated Thumbnail: " + idStr)
 	}
 
-	btnGenThumb := widget.NewButton("Generate & Save Thumbnail (DDS+Meta)", generateAndSaveThumbnail)
+	btnGenThumb := widget.NewButton("Generate & Save Thumbnail", generateAndSaveThumbnail)
+
+	// --- REPACK / EXTRACT LOGIC ---
+	var showRepackDialog func() 
+
+	// Recursive Copy Helper
+	copyRecursive := func(src, dst string) error {
+		return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			// Compute relative path
+			relPath, err := filepath.Rel(src, path)
+			if err != nil {
+				return err
+			}
+			dstPath := filepath.Join(dst, relPath)
+
+			if info.IsDir() {
+				return os.MkdirAll(dstPath, info.Mode())
+			}
+
+			// Skip non-regular files (pipes, devices, etc.)
+			if !info.Mode().IsRegular() {
+				return nil
+			}
+
+			sourceFile, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer sourceFile.Close()
+
+			destinationFile, err := os.Create(dstPath)
+			if err != nil {
+				return err
+			}
+			defer destinationFile.Close()
+
+			_, err = io.Copy(destinationFile, sourceFile)
+			return err
+		})
+	}
+
+	runExtract := func(echoPath string) error {
+		// Ensure parent folder exists
+		os.MkdirAll(ExtractedDir, 0755)
+
+		// Points to Settings/evrFileTools.exe
+		toolPath := filepath.Join(SettingsDir, "evrFileTools.exe")
+
+		cmd := exec.Command(toolPath,
+			"-mode", "extract",
+			"-packageName", PackageName,
+			"-dataDir", echoPath,
+			"-outputDir", ExtractedDir,
+			"-tintsonly",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("extract failed: %v\nOutput: %s", err, string(out))
+		}
+		return nil
+	}
+
+	// Helper function for Part 1 of Repack: Execute Tool
+	executeRepackTool := func(echoPath string) error {
+		// 1. Prepare Input File for Tints
+		// Path: Settings/input-pcvr/0/3671295590506143214/4869319423857648486
+		tintDir := filepath.Join(InputDir, TintFolder)
+		if err := os.MkdirAll(tintDir, 0755); err != nil {
+			return fmt.Errorf("failed to create tint dir: %v", err)
+		}
+
+		outFile := filepath.Join(tintDir, TintFileName)
+		b, err := cosmeticListToBytes(currentCList)
+		if err != nil {
+			return fmt.Errorf("failed to serialize tint data: %v", err)
+		}
+		if err := os.WriteFile(outFile, b, 0644); err != nil {
+			return fmt.Errorf("failed to write tint file: %v", err)
+		}
+
+		// 2. Run evrFileTools Replace
+		// Ensure output dir exists
+		os.MkdirAll(OutputDir, 0755)
+
+		// Points to Settings/evrFileTools.exe
+		toolPath := filepath.Join(SettingsDir, "evrFileTools.exe")
+
+		cmd := exec.Command(toolPath,
+			"-mode", "replace",
+			"-outputDir", OutputDir,
+			"-packageName", PackageName,
+			"-dataDir", echoPath,
+			"-inputDir", InputDir,
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("repack failed: %v\nOutput: %s", err, string(out))
+		}
+		return nil
+	}
+
+	// Helper function for Part 2 of Repack: Push Files
+	pushRepackedFiles := func(echoPath string) error {
+		// 3. Move Files from OutputDir to Echo Data Dir
+		// We can reuse copyRecursive since OutputDir structure mirrors EchoDataDir (packages/manifests)
+		
+		srcPkg := filepath.Join(OutputDir, "packages")
+		dstPkg := filepath.Join(echoPath, "packages")
+		if _, err := os.Stat(srcPkg); err == nil {
+			if err := copyRecursive(srcPkg, dstPkg); err != nil {
+				return fmt.Errorf("failed to move packages: %v", err)
+			}
+		}
+
+		srcMan := filepath.Join(OutputDir, "manifests")
+		dstMan := filepath.Join(echoPath, "manifests")
+		if _, err := os.Stat(srcMan); err == nil {
+			if err := copyRecursive(srcMan, dstMan); err != nil {
+				return fmt.Errorf("failed to move manifests: %v", err)
+			}
+		}
+
+		return nil
+	}
+
+	showRepackDialog = func() {
+		// Container for the modal content
+		content := container.NewVBox()
+		modal := dialog.NewCustom("Repack Tool", "Close", content, w)
+		modal.Resize(fyne.NewSize(600, 400))
+
+		// Check if extracted exists
+		_, errExtract := os.Stat(ExtractedDir)
+		extractedExists := errExtract == nil
+
+		// UI Elements
+		lblPath := widget.NewLabel(appSettings.EchoVRDataPath)
+		btnBrowse := widget.NewButton("Browse Data Path", func() {
+			dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+				if uri != nil {
+					appSettings.EchoVRDataPath = uri.Path()
+					lblPath.SetText(appSettings.EchoVRDataPath)
+					saveSettings()
+				}
+			}, w)
+		})
+
+		refreshUI := func() {
+			content.Objects = nil // Clear
+
+			if !extractedExists {
+				// STATE 1: EXTRACT
+				content.Add(widget.NewLabel("Step 1: Extract Original Tints"))
+				content.Add(widget.NewLabel("Selected EchoVR Data Path:"))
+				content.Add(container.NewBorder(nil, nil, nil, btnBrowse, lblPath))
+				content.Add(widget.NewButton("Extract", func() {
+					// Use a blocking dialog that runs extract in background to avoid freeze
+					loading := dialog.NewCustom("Extracting...", "Cancel", widget.NewProgressBarInfinite(), w)
+					loading.Show()
+					
+					go func() {
+						err := runExtract(appSettings.EchoVRDataPath)
+						loading.Hide()
+						if err != nil {
+							dialog.ShowError(err, w)
+						} else {
+							extractedExists = true
+							// Refresh the modal content on Main Thread if needed, mostly safe in Fyne
+							showRepackDialog()
+						}
+					}()
+				}))
+			} else {
+				// STATE 2: REPACK
+				content.Add(widget.NewLabel("Step 2: Modify & Repack"))
+
+				// Backup Logic
+				backupDir := filepath.Join(SettingsDir, BackupDirName)
+				_, errBackup := os.Stat(backupDir)
+				backupExists := errBackup == nil
+
+				backupUI := container.NewVBox()
+				if backupExists {
+					backupUI.Add(widget.NewLabel("Backup found."))
+					
+					btnRevert := widget.NewButton("Revert to Backup", func() {
+						loading := dialog.NewCustom("Restoring Backup...", "Cancel", widget.NewProgressBarInfinite(), w)
+						loading.Show()
+						go func() {
+							// Copy from Settings/Backup -> EchoDataPath
+							err := copyRecursive(backupDir, appSettings.EchoVRDataPath)
+							loading.Hide()
+							if err != nil {
+								dialog.ShowError(err, w)
+							} else {
+								dialog.ShowInformation("Success", "Game files reverted to backup.", w)
+							}
+						}()
+					})
+					// Style warning
+					btnRevert.Importance = widget.WarningImportance
+					backupUI.Add(btnRevert)
+
+				} else {
+					backupUI.Add(widget.NewLabel("No backup found."))
+					backupUI.Add(widget.NewButton("Create Backup", func() {
+						loading := dialog.NewCustom("Backing up...", "Cancel", widget.NewProgressBarInfinite(), w)
+						loading.Show()
+						go func() {
+							// Ensure backup dir exists
+							os.MkdirAll(backupDir, 0755)
+							// Copy from EchoDataPath -> Settings/Backup
+							err := copyRecursive(appSettings.EchoVRDataPath, backupDir)
+							loading.Hide()
+							if err != nil {
+								dialog.ShowError(err, w)
+							} else {
+								dialog.ShowInformation("Backup", "Backup created successfully.", w)
+								// Refresh UI to show Revert button
+								showRepackDialog()
+							}
+						}()
+					}))
+				}
+				// Use Widget Card instead of Group
+				content.Add(widget.NewCard("Backup", "", backupUI))
+
+				content.Add(widget.NewSeparator())
+				content.Add(widget.NewLabel("Ready to Repack changes into game."))
+				content.Add(widget.NewButton("REPACK & APPLY", func() {
+					// 1. Show Loading (Repacking)
+					loading := dialog.NewCustom("Repacking...", "Cancel", widget.NewProgressBarInfinite(), w)
+					loading.Show()
+					
+					// 2. Execute Tool in background
+					go func() {
+						err := executeRepackTool(appSettings.EchoVRDataPath)
+						loading.Hide()
+						
+						if err != nil {
+							dialog.ShowError(err, w)
+							return
+						}
+
+						// 3. Prompt User to Push Files
+						dialog.ShowConfirm("Push files?", "Repack complete. Do you want to push files to the game?", func(confirm bool) {
+							if confirm {
+								// 4. Show Loading (Pushing)
+								pushLoading := dialog.NewCustom("Pushing files...", "Cancel", widget.NewProgressBarInfinite(), w)
+								pushLoading.Show()
+
+								// 5. Execute Push in background
+								go func() {
+									err := pushRepackedFiles(appSettings.EchoVRDataPath)
+									pushLoading.Hide()
+									if err != nil {
+										dialog.ShowError(err, w)
+									} else {
+										dialog.ShowInformation("Success", "Tints repacked and applied to game!", w)
+									}
+								}()
+							}
+						}, w)
+					}()
+				}))
+			}
+			content.Refresh()
+		}
+
+		refreshUI()
+		modal.Show()
+	}
+
+	btnRepack := widget.NewButton("REPACK", showRepackDialog)
 
 	// --- LIST WIDGET ---
 	loadEntryToEditor := func(realIdx int) {
@@ -451,6 +769,7 @@ func main() {
 	lblAssets := widget.NewLabel(appSettings.AssetsPath)
 	lblTexOut := widget.NewLabel(appSettings.TextureOutPath)
 	lblMetaOut := widget.NewLabel(appSettings.MetadataOutPath)
+	lblDataPath := widget.NewLabel(appSettings.EchoVRDataPath)
 
 	if appSettings.AssetsPath == "" {
 		lblAssets.SetText("Not Set")
@@ -461,19 +780,6 @@ func main() {
 	if appSettings.MetadataOutPath == "" {
 		lblMetaOut.SetText("Not Set")
 	}
-
-	btnSetAssets := widget.NewButton("Browse", func() {
-		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
-			if uri != nil {
-				appSettings.AssetsPath = uri.Path()
-				lblAssets.SetText(appSettings.AssetsPath)
-				saveSettings()
-				if selectedListIndex != -1 {
-					refreshThumbnail(thumbIdEntry.Text)
-				}
-			}
-		}, w)
-	})
 
 	btnSetTexOut := widget.NewButton("Browse", func() {
 		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
@@ -494,11 +800,23 @@ func main() {
 			}
 		}, w)
 	})
+	
+	btnSetDataPath := widget.NewButton("Browse", func() {
+		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+			if uri != nil {
+				appSettings.EchoVRDataPath = uri.Path()
+				lblDataPath.SetText(appSettings.EchoVRDataPath)
+				saveSettings()
+			}
+		}, w)
+	})
 
 	showSettings := func() {
 		content := container.NewVBox(
 			widget.NewLabel("Settings"), widget.NewSeparator(),
-			widget.NewLabel("Original Assets (For View):"), container.NewBorder(nil, nil, nil, btnSetAssets, lblAssets),
+			widget.NewLabel("Thumbnails are downloaded automatically."),
+			widget.NewSeparator(),
+			widget.NewLabel("EchoVR Data Path:"), container.NewBorder(nil, nil, nil, btnSetDataPath, lblDataPath),
 			widget.NewSeparator(),
 			widget.NewLabel("Output Texture Folder (DDS):"), container.NewBorder(nil, nil, nil, btnSetTexOut, lblTexOut),
 			widget.NewLabel("Output Metadata Folder (Hex):"), container.NewBorder(nil, nil, nil, btnSetMetaOut, lblMetaOut),
@@ -514,25 +832,38 @@ func main() {
 			dialog.ShowError(err, w)
 			return
 		}
-		dialog.ShowFileSave(func(writer fyne.URIWriteCloser, err error) {
-			if err == nil && writer != nil {
-				writer.Write(b)
-				writer.Close()
-				os.Remove(tempFilePath)
-				initData()
-				dialog.ShowInformation("Saved", "Cosmetic List Saved.", w)
-			}
-		}, w)
+
+		// Ensure directories exist: Settings/input-pcvr/0/3671295590506143214
+		tintDir := filepath.Join(InputDir, TintFolder)
+		if err := os.MkdirAll(tintDir, 0755); err != nil {
+			dialog.ShowError(err, w)
+			return
+		}
+
+		// Write to: Settings/input-pcvr/0/3671295590506143214/4869319423857648486
+		targetFile := filepath.Join(tintDir, TintFileName)
+		
+		if err := os.WriteFile(targetFile, b, 0644); err != nil {
+			dialog.ShowError(err, w)
+			return
+		}
+
+		dialog.ShowInformation("Saved", "Cosmetic List Saved to:\n"+targetFile, w)
 	})
 
 	// --- LAYOUT ---
 	colorForm := widget.NewForm(
-		widget.NewFormItem("Primary Hex", primaryHex),
-		widget.NewFormItem("Secondary Hex", secondaryHex),
+		widget.NewFormItem("Main", primaryHex),
+		widget.NewFormItem("Secondary", secondaryHex),
 	)
 
-	topLeft := container.NewGridWithColumns(2, btnSettings, btnLoadFile)
-	left := container.NewBorder(container.NewVBox(topLeft, widget.NewSeparator(), searchEntry), nil, nil, nil, tintList)
+	// Modified Layout: Repack at Top
+	topRow := container.NewVBox(
+		container.NewGridWithColumns(1, btnRepack),
+		container.NewGridWithColumns(2, btnSettings, btnLoadFile),
+	)
+	
+	left := container.NewBorder(container.NewVBox(topRow, widget.NewSeparator(), searchEntry), nil, nil, nil, tintList)
 
 	right := container.NewVBox(
 		widget.NewLabel("Preview"),
@@ -564,6 +895,133 @@ func main() {
 	w.ShowAndRun()
 }
 
+// --- THUMBNAIL DOWNLOADER ---
+func downloadAndExtractThumbnails() {
+	url := "https://api.github.com/repos/heisthecat31/EchoVR-Tint-Editor/releases/tags/Editor"
+	zipName := filepath.Join(SettingsDir, "thumbnail.zip")
+	targetDir := filepath.Join(SettingsDir, "thumbnail")
+
+	// Ensure Settings dir exists
+	os.MkdirAll(SettingsDir, 0755)
+
+	// Check if already extracted
+	if _, err := os.Stat(targetDir); err == nil {
+		fmt.Println("Thumbnails already present.")
+		return
+	}
+
+	fmt.Println("Fetching release info...")
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println("Failed to fetch release info:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Failed to fetch release info: HTTP %d\n", resp.StatusCode)
+		return
+	}
+
+	var release struct {
+		Assets []struct {
+			Name               string `json:"name"`
+			BrowserDownloadUrl string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		fmt.Println("Failed to decode release info:", err)
+		return
+	}
+
+	downloadUrl := ""
+	for _, asset := range release.Assets {
+		if asset.Name == "thumbnail.zip" {
+			downloadUrl = asset.BrowserDownloadUrl
+			break
+		}
+	}
+
+	if downloadUrl == "" {
+		fmt.Println("thumbnail.zip not found in release assets")
+		return
+	}
+
+	fmt.Println("Downloading thumbnails from:", downloadUrl)
+	resp, err = http.Get(downloadUrl)
+	if err != nil {
+		fmt.Println("Failed to download thumbnails:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Failed to download: HTTP %d\n", resp.StatusCode)
+		return
+	}
+
+	out, err := os.Create(zipName)
+	if err != nil {
+		fmt.Println("Failed to create zip file:", err)
+		return
+	}
+	
+	_, err = io.Copy(out, resp.Body)
+	out.Close() // Close before reading
+	if err != nil {
+		fmt.Println("Failed to save zip:", err)
+		return
+	}
+
+	// Extract
+	r, err := zip.OpenReader(zipName)
+	if err != nil {
+		fmt.Println("Failed to open zip:", err)
+		return
+	}
+	defer r.Close()
+
+	os.MkdirAll(targetDir, 0755)
+
+	for _, f := range r.File {
+		fpath := filepath.Join(targetDir, f.Name)
+		
+		// Check for ZipSlip
+		if !strings.HasPrefix(fpath, filepath.Clean(targetDir)+string(os.PathSeparator)) {
+			continue
+		}
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(fpath, os.ModePerm)
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+			continue
+		}
+
+		outFile, err := os.OpenFile(fpath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		if err != nil {
+			continue
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			outFile.Close()
+			continue
+		}
+
+		_, err = io.Copy(outFile, rc)
+		outFile.Close()
+		rc.Close()
+	}
+	
+	// Clean up zip
+	os.Remove(zipName)
+	fmt.Println("Thumbnails downloaded and extracted.")
+}
+
 // --- METADATA WRITER ---
 func writeMetadata(filename string) error {
 	f, err := os.Create(filename)
@@ -572,8 +1030,7 @@ func writeMetadata(filename string) error {
 	}
 	defer f.Close()
 
-	// 1. Padding (FFs) - 192 bytes (One "full line" of 16 bytes removed from 208)
-	// User requested "1 full line less" than 208. 208 - 16 = 192.
+	// 1. Padding (FFs) - 192 bytes
 	padding := bytes.Repeat([]byte{0xFF}, 192)
 	f.Write(padding)
 
