@@ -252,6 +252,7 @@ type CEmissive struct {
 	Description     string
 	Rarity          int64
 	ThumbnailSymbol int64
+	TextureSymbol   int64
 
 	Unk1   float32 // something to do with scrolling???
 	Unk2   float32 // something to do with scrolling???
@@ -274,8 +275,11 @@ func (c *CEmissive) ToCosmeticEntry() (cosmeticEntry, error) {
 	foo.cEntry.RaritySymbol = c.Rarity
 
 	foo.cEntry.ThumbnailSymbol = c.ThumbnailSymbol
+	foo.cEntry.TextureSymbol = c.TextureSymbol
+	foo.cEntry.EmissiveUnk1 = c.Unk1
+	foo.cEntry.EmissiveUnk2 = c.Unk2
 
-	buf := make([]byte, 8+(len(c.Colors)*12))
+	buf := make([]byte, len(c.Colors)*12)
 
 	for i := 0; i < len(c.Colors); i++ {
 		binary.LittleEndian.PutUint32(buf[i*12:], math.Float32bits(c.Colors[i][0]))
@@ -298,6 +302,9 @@ func (c *CEmissive) FromCosmeticEntry(d cosmeticEntry) error {
 	c.Description = string(bytes.TrimRight(d.cEntry.DescriptionString[:], "\x00"))
 	c.Rarity = d.cEntry.RaritySymbol
 	c.ThumbnailSymbol = d.cEntry.ThumbnailSymbol
+	c.TextureSymbol = d.cEntry.TextureSymbol
+	c.Unk1 = d.cEntry.EmissiveUnk1
+	c.Unk2 = d.cEntry.EmissiveUnk2
 
 	// emissive-specific conversions
 	Colors := make([][3]float32, d.cEntry.ExtDataParamCount)
@@ -310,6 +317,7 @@ func (c *CEmissive) FromCosmeticEntry(d cosmeticEntry) error {
 		Colors[i][1] = math.Float32frombits(binary.LittleEndian.Uint32(d.cEntryExtData[i*12+4 : i*12+8]))
 		Colors[i][2] = math.Float32frombits(binary.LittleEndian.Uint32(d.cEntryExtData[i*12+8 : i*12+12]))
 	}
+	c.Colors = Colors
 
 	return nil
 }
