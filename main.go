@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
+	"image/png"
 	"io"
 	"math"
 	"net/http"
@@ -33,6 +33,7 @@ import (
 )
 
 // --- EMBEDDED FILES ---
+//
 //go:embed 0x43934c379cf1e366_original
 var embeddedOriginal []byte
 
@@ -44,33 +45,48 @@ var embeddedTemplate []byte
 
 // --- SETTINGS STRUCT ---
 type AppSettings struct {
-	AssetsPath      string `json:"assets_path"`
+	AssetsPath      string `json:"assets_path"` // Now used for the auto-downloaded path
 	TextureOutPath  string `json:"texture_out_path"`
 	MetadataOutPath string `json:"metadata_out_path"`
 	EchoVRDataPath  string `json:"echovr_data_path"`
 	BackupPath      string `json:"backup_path"`
 }
 
+// Global State
 var (
-	currentCList      cosmeticList
-	tintIndices       []int
-	filteredIndices   []int
-	selectedListIndex int = -1
+	currentCList            cosmeticList
+	tintIndices             []int
+	filteredIndices         []int
+	titleIndices            []int
+	filteredTitleIndices    []int
+	emissiveIndices         []int
+	filteredEmissiveIndices []int
+	selectedListIndex       int = -1
 
+	// Flags
 	isLoadingEntry bool
 
+	// UI
+	titleStringEntry    *widget.Entry
+	emissiveUnk1Entry   *widget.Entry
+	emissiveUnk2Entry   *widget.Entry
+	emissiveTexEntry    *widget.Entry
+	emissiveColorsEntry *widget.Entry
 
-	tempFilePath string 
+	// File Paths
+	// tempFilePath is initialized in main() to ensure it uses the correct separator/path
+	tempFilePath string
 	settingsFile = "settings.json"
 	appSettings  AppSettings
 )
 
+// --- CONSTANTS FOR PATHS ---
 const (
 	DefaultEchoPath = "./ready-at-dawn-echo-arena/_data/5932408047/rad15/win10"
 	PackageName     = "48037dc70b0ecab2"
 
 	// Base Directories
-	SettingsDir     = "Settings"
+	SettingsDirName = "Settings"
 	ExtractedDir    = "Settings/pcvr-extracted"
 	InputDir        = "Settings/input-pcvr"
 	OutputDir       = "Settings/output-both"
@@ -78,24 +94,66 @@ const (
 
 	// 1. TINT FILE (Cosmetic List)
 	// Path: Settings/input-pcvr/0/3671295590506143214/4869319423857648486
-	TintFolder      = "0/3671295590506143214"
-	TintFileName    = "4869319423857648486"
+	TintFolder   = "0/3671295590506143214"
+	TintFileName = "4869319423857648486"
 
 	// 2. THUMBNAIL TEXTURE (DDS)
 	// Path: Settings/input-pcvr/0/-4707359568332879775/[ID]
-	ThumbTexFolder  = "0/-4707359568332879775"
+	ThumbTexFolder = "0/-4707359568332879775"
 
 	// 3. THUMBNAIL METADATA (Hex)
 	// Path: Settings/input-pcvr/0/5353709876897953952/[ID]
 	ThumbMetaFolder = "0/5353709876897953952"
 )
 
+// --- HELPER: Find Tool Path ---
+// Looks for tools in ./Settings OR [ExeDir]/Settings
+func findTool(toolName string) (string, error) {
+	// 1. Check Working Directory (./Settings/tool.exe)
+	localPath := filepath.Join(SettingsDirName, toolName)
+	if _, err := os.Stat(localPath); err == nil {
+		path, _ := filepath.Abs(localPath)
+		return path, nil
+	}
+
+	// 2. Check Executable Directory ([ExeDir]/Settings/tool.exe)
+	exePath, err := os.Executable()
+	if err == nil {
+		exeDir := filepath.Dir(exePath)
+		exeToolPath := filepath.Join(exeDir, SettingsDirName, toolName)
+		if _, err := os.Stat(exeToolPath); err == nil {
+			return exeToolPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("tool '%s' not found in %s folder", toolName, SettingsDirName)
+}
+
+// --- HELPER: Get Settings Dir Path ---
+// Returns the best guess for the absolute path to the Settings folder
+func getSettingsDir() string {
+	// Try local first
+	if _, err := os.Stat(SettingsDirName); err == nil {
+		path, _ := filepath.Abs(SettingsDirName)
+		return path
+	}
+	// Try next to executable
+	exePath, err := os.Executable()
+	if err == nil {
+		return filepath.Join(filepath.Dir(exePath), SettingsDirName)
+	}
+	return SettingsDirName // Fallback to relative
+}
+
 func main() {
 	os.Setenv("FYNE_GL_VERSION", "2.1")
 
-	os.MkdirAll(SettingsDir, 0755)
+	// 1. SETUP: Directories & Settings
+	settingsPath := getSettingsDir()
+	os.MkdirAll(settingsPath, 0755)
 
-	tempDir := filepath.Join(SettingsDir, "Temp")
+	// Create Settings/Temp folder
+	tempDir := filepath.Join(settingsPath, "Temp")
 	os.MkdirAll(tempDir, 0755)
 
 	// Set temp file path
@@ -105,8 +163,9 @@ func main() {
 	if appSettings.EchoVRDataPath == "" {
 		appSettings.EchoVRDataPath = DefaultEchoPath
 	}
+	// Default assets path to Settings/thumbnail
 	if appSettings.AssetsPath == "" || appSettings.AssetsPath == "./thumbnails" {
-		appSettings.AssetsPath = filepath.Join(SettingsDir, "thumbnail")
+		appSettings.AssetsPath = filepath.Join(settingsPath, "thumbnail")
 	}
 	saveSettings()
 
@@ -117,19 +176,26 @@ func main() {
 		}
 	}()
 
+	// --- DOWNLOAD THUMBNAILS ON START ---
 	go downloadAndExtractThumbnails()
 
 	a := app.New()
 	a.SetIcon(fyne.NewStaticResource("icon.ico", embeddedIcon))
 
-	w := a.NewWindow("Cosmetic Tint Editor")
+	w := a.NewWindow("EchoVR Cosmetics Editor")
 	w.Resize(fyne.NewSize(1100, 800))
 
+	// --- UI DEFINITIONS ---
 	statusLabel := widget.NewLabel("Status: Initializing...")
 
 	nameEntry := widget.NewEntry()
 	descEntry := widget.NewEntry()
 	thumbIdEntry := widget.NewEntry()
+	titleStringEntry = widget.NewEntry()
+	emissiveUnk1Entry = widget.NewEntry()
+	emissiveUnk2Entry = widget.NewEntry()
+	emissiveTexEntry = widget.NewEntry()
+	emissiveColorsEntry = widget.NewMultiLineEntry()
 
 	thumbImage := canvas.NewImageFromResource(nil)
 	thumbImage.FillMode = canvas.ImageFillContain
@@ -139,11 +205,26 @@ func main() {
 		thumbImage,
 	)
 
+	// Emissive Preview UI
+	emissivePreviewImage := canvas.NewImageFromImage(nil)
+	emissivePreviewImage.FillMode = canvas.ImageFillContain
+	emissivePreviewImage.SetMinSize(fyne.NewSize(150, 150))
+	emissivePreviewContainer := container.NewMax(
+		canvas.NewRectangle(color.RGBA{30, 30, 30, 255}),
+		emissivePreviewImage,
+	)
+	emissivePreviewLabel := widget.NewLabel("Color Preview")
+	emissivePreviewWrapper := container.NewCenter(emissivePreviewContainer)
+	emissivePreviewLabel.Hide()
+	emissivePreviewWrapper.Hide()
+
+	// HEX ENTRIES (Renamed to Main/Secondary)
 	primaryHex := widget.NewEntry()
 	primaryHex.PlaceHolder = "FFFFFF"
 	secondaryHex := widget.NewEntry()
 	secondaryHex.PlaceHolder = "FFFFFF"
 
+	// Validators
 	thumbIdEntry.Validator = func(s string) error {
 		_, err := strconv.ParseInt(s, 10, 64)
 		return err
@@ -190,7 +271,9 @@ func main() {
 		currentCList = cList
 	}
 
-	applyChange := func(modifier func(*CTint)) {
+	// --- LOGIC: APPLY CHANGES ---
+	var tabs *container.AppTabs
+	applyChange := func(modifier func(interface{})) {
 		if isLoadingEntry {
 			return
 		}
@@ -199,14 +282,33 @@ func main() {
 		}
 
 		idx := selectedListIndex
-		t := CTint{}
-		if err := t.FromCosmeticEntry(currentCList.cosmeticEntries[idx]); err != nil {
-			return
+		entry := currentCList.cosmeticEntries[idx]
+		var newEntry cosmeticEntry
+		var err error
+
+		if tabs.Selected().Text == "Tints" {
+			t := &CTint{}
+			if err := t.FromCosmeticEntry(entry); err != nil {
+				return
+			}
+			modifier(t)
+			newEntry, err = t.ToCosmeticEntry()
+		} else if tabs.Selected().Text == "Titles" {
+			t := &CTitle{}
+			if err := t.FromCosmeticEntry(entry); err != nil {
+				return
+			}
+			modifier(t)
+			newEntry, err = t.ToCosmeticEntry()
+		} else if tabs.Selected().Text == "Emissives" {
+			t := &CEmissive{}
+			if err := t.FromCosmeticEntry(entry); err != nil {
+				return
+			}
+			modifier(t)
+			newEntry, err = t.ToCosmeticEntry()
 		}
 
-		modifier(&t)
-
-		newEntry, err := t.ToCosmeticEntry()
 		if err != nil {
 			return
 		}
@@ -214,20 +316,46 @@ func main() {
 		// Fix Size Difference
 		oldSize := len(currentCList.cosmeticEntries[idx].cEntryExtData)
 		newSize := len(newEntry.cEntryExtData)
-		currentCList.listSize = uint64(int64(currentCList.listSize) + int64(newSize - oldSize))
+		currentCList.listSize = uint64(int64(currentCList.listSize) + int64(newSize-oldSize))
 		currentCList.cosmeticEntries[idx] = newEntry
 
 		saveToTemp()
 	}
 
-	onName := func(s string) { applyChange(func(t *CTint) { t.DisplayName = s }) }
-	onDesc := func(s string) { applyChange(func(t *CTint) { t.Description = s }) }
+	// --- LISTENERS ---
+	onName := func(s string) {
+		applyChange(func(v interface{}) {
+			switch t := v.(type) {
+			case *CTint:
+				t.DisplayName = s
+			case *CTitle:
+				t.DisplayName = s
+			case *CEmissive:
+				t.DisplayName = s
+			}
+		})
+	}
+	onDesc := func(s string) {
+		applyChange(func(v interface{}) {
+			switch t := v.(type) {
+			case *CTint:
+				t.Description = s
+			case *CTitle:
+				t.Description = s
+			case *CEmissive:
+				t.Description = s
+			}
+		})
+	}
 
 	refreshThumbnail := func(idStr string) {
 		if idStr == "" {
 			return
 		}
+		// Check Auto-Downloaded Assets Path
 		if appSettings.AssetsPath != "" {
+			// Look for png files in the folder (e.g. symbol.png)
+			// The zip usually contains images named by symbol
 			originalPath := filepath.Join(appSettings.AssetsPath, idStr+".png")
 			if _, err := os.Stat(originalPath); err == nil {
 				thumbImage.File = originalPath
@@ -243,12 +371,25 @@ func main() {
 	onThumb := func(s string) {
 		refreshThumbnail(s)
 		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
-			applyChange(func(t *CTint) { t.ThumbnailSymbol = id })
+			applyChange(func(v interface{}) {
+				switch t := v.(type) {
+				case *CTint:
+					t.ThumbnailSymbol = id
+				case *CTitle:
+					t.ThumbnailSymbol = id
+				case *CEmissive:
+					t.ThumbnailSymbol = id
+				}
+			})
 		}
 	}
 
+	// Helper to handle hex input
 	onHexChange := func(isPrimary bool) func(string) {
 		return func(s string) {
+			if tabs.Selected().Text != "Tints" {
+				return
+			}
 			s = strings.TrimPrefix(s, "#")
 			if len(s) != 6 {
 				return
@@ -259,15 +400,123 @@ func main() {
 			}
 			r, g, b := float32(bytes[0])/255.0, float32(bytes[1])/255.0, float32(bytes[2])/255.0
 
-			applyChange(func(t *CTint) {
-				if isPrimary {
-					t.PrimaryColor_R, t.PrimaryColor_G, t.PrimaryColor_B = r, g, b
-				} else {
-					t.SecondaryColor_R, t.SecondaryColor_G, t.SecondaryColor_B = r, g, b
+			applyChange(func(v interface{}) {
+				if t, ok := v.(*CTint); ok {
+					if isPrimary {
+						t.PrimaryColor_R, t.PrimaryColor_G, t.PrimaryColor_B = r, g, b
+					} else {
+						t.SecondaryColor_R, t.SecondaryColor_G, t.SecondaryColor_B = r, g, b
+					}
 				}
 			})
 		}
 	}
+
+	titleStringEntry.OnChanged = func(s string) {
+		applyChange(func(v interface{}) {
+			if t, ok := v.(*CTitle); ok {
+				t.TitleString = s
+			}
+		})
+	}
+
+	// Emissive Listeners
+	emissiveUnk1Entry.OnChanged = func(s string) {
+		if f, err := strconv.ParseFloat(s, 32); err == nil {
+			applyChange(func(v interface{}) {
+				if t, ok := v.(*CEmissive); ok {
+					t.Unk1 = float32(f)
+				}
+			})
+		}
+	}
+	emissiveUnk2Entry.OnChanged = func(s string) {
+		if f, err := strconv.ParseFloat(s, 32); err == nil {
+			applyChange(func(v interface{}) {
+				if t, ok := v.(*CEmissive); ok {
+					t.Unk2 = float32(f)
+				}
+			})
+		}
+	}
+	emissiveTexEntry.OnChanged = func(s string) {
+		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+			applyChange(func(v interface{}) {
+				if t, ok := v.(*CEmissive); ok {
+					t.TextureSymbol = id
+				}
+			})
+		}
+	}
+
+	refreshEmissivePreview := func(colors [][3]float32) {
+		if len(colors) == 0 {
+			emissivePreviewImage.Image = nil
+			emissivePreviewImage.Refresh()
+			return
+		}
+		width := 100
+		height := 100
+		img := image.NewRGBA(image.Rect(0, 0, width, height))
+
+		sectionHeight := float64(height) / float64(len(colors))
+
+		for i, c := range colors {
+			col := color.RGBA{
+				R: uint8(c[0] * 255),
+				G: uint8(c[1] * 255),
+				B: uint8(c[2] * 255),
+				A: 255,
+			}
+			startY := int(float64(i) * sectionHeight)
+			endY := int(float64(i+1) * sectionHeight)
+			if i == len(colors)-1 {
+				endY = height
+			}
+
+			for y := startY; y < endY; y++ {
+				for x := 0; x < width; x++ {
+					img.Set(x, y, col)
+				}
+			}
+		}
+		emissivePreviewImage.Image = img
+		emissivePreviewImage.Refresh()
+	}
+
+	onEmissiveColorsChanged := func(s string) {
+		lines := strings.Split(s, "\n")
+		var newColors [][3]float32
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			line = strings.TrimPrefix(line, "#")
+			if len(line) != 6 {
+				continue
+			}
+			b, err := hex.DecodeString(line)
+			if err != nil {
+				continue
+			}
+			newColors = append(newColors, [3]float32{
+				float32(b[0]) / 255.0,
+				float32(b[1]) / 255.0,
+				float32(b[2]) / 255.0,
+			})
+		}
+		refreshEmissivePreview(newColors)
+		// Only update if we parsed something valid to avoid clearing on typing
+		if len(newColors) > 0 {
+			applyChange(func(v interface{}) {
+				if t, ok := v.(*CEmissive); ok {
+					t.Colors = newColors
+				}
+			})
+		}
+	}
+	emissiveColorsEntry.OnChanged = onEmissiveColorsChanged
 
 	unbindListeners := func() {
 		nameEntry.OnChanged = nil
@@ -275,14 +524,59 @@ func main() {
 		thumbIdEntry.OnChanged = nil
 		primaryHex.OnChanged = nil
 		secondaryHex.OnChanged = nil
+		titleStringEntry.OnChanged = nil
+		emissiveUnk1Entry.OnChanged = nil
+		emissiveUnk2Entry.OnChanged = nil
+		emissiveTexEntry.OnChanged = nil
+		emissiveColorsEntry.OnChanged = nil
 	}
 
 	bindListeners := func() {
 		nameEntry.OnChanged = onName
 		descEntry.OnChanged = onDesc
 		thumbIdEntry.OnChanged = onThumb
-		primaryHex.OnChanged = onHexChange(true)
-		secondaryHex.OnChanged = onHexChange(false)
+
+		if tabs.Selected().Text == "Tints" {
+			primaryHex.OnChanged = onHexChange(true)
+			secondaryHex.OnChanged = onHexChange(false)
+		} else if tabs.Selected().Text == "Titles" {
+			titleStringEntry.OnChanged = func(s string) {
+				applyChange(func(v interface{}) {
+					if t, ok := v.(*CTitle); ok {
+						t.TitleString = s
+					}
+				})
+			}
+		} else if tabs.Selected().Text == "Emissives" {
+			emissiveUnk1Entry.OnChanged = func(s string) {
+				if f, err := strconv.ParseFloat(s, 32); err == nil {
+					applyChange(func(v interface{}) {
+						if t, ok := v.(*CEmissive); ok {
+							t.Unk1 = float32(f)
+						}
+					})
+				}
+			}
+			emissiveUnk2Entry.OnChanged = func(s string) {
+				if f, err := strconv.ParseFloat(s, 32); err == nil {
+					applyChange(func(v interface{}) {
+						if t, ok := v.(*CEmissive); ok {
+							t.Unk2 = float32(f)
+						}
+					})
+				}
+			}
+			emissiveTexEntry.OnChanged = func(s string) {
+				if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+					applyChange(func(v interface{}) {
+						if t, ok := v.(*CEmissive); ok {
+							t.TextureSymbol = id
+						}
+					})
+				}
+			}
+			emissiveColorsEntry.OnChanged = onEmissiveColorsChanged
+		}
 	}
 
 	// --- THUMBNAIL GENERATOR ---
@@ -301,7 +595,7 @@ func main() {
 			return
 		}
 
-		// 3. Colours Helper
+		// 3. Colors Helper
 		parseColor := func(hexStr string) color.RGBA {
 			hexStr = strings.TrimPrefix(hexStr, "#")
 			b, _ := hex.DecodeString(hexStr)
@@ -312,8 +606,8 @@ func main() {
 		}
 		cPrim := parseColor(primaryHex.Text)
 		cSec := parseColor(secondaryHex.Text)
-		
-		// Original Colorus in Template to Replace
+
+		// Original Colors in Template to Replace
 		srcPrimary := color.RGBA{0x9F, 0x12, 0x13, 0xFF}
 		srcSecondary := color.RGBA{0xEC, 0xDB, 0x10, 0xFF}
 
@@ -324,6 +618,7 @@ func main() {
 			return math.Sqrt(rDiff*rDiff+gDiff*gDiff+bDiff*bDiff) < threshold
 		}
 
+		// 4. Create Tinted Image
 		bounds := img.Bounds()
 		dst := image.NewRGBA(bounds)
 
@@ -333,35 +628,73 @@ func main() {
 				r, g, b, a := srcC.RGBA()
 				// Convert back to 8-bit
 				currColor := color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(a >> 8)}
-				
+
 				finalColor := currColor
+				// SWAPPED LOGIC: Map template source to user selection
 				if isSimilar(currColor, srcPrimary, 80.0) {
-					finalColor = color.RGBA{cPrim.R, cPrim.G, cPrim.B, currColor.A}
-				} else if isSimilar(currColor, srcSecondary, 80.0) {
 					finalColor = color.RGBA{cSec.R, cSec.G, cSec.B, currColor.A}
+				} else if isSimilar(currColor, srcSecondary, 80.0) {
+					finalColor = color.RGBA{cPrim.R, cPrim.G, cPrim.B, currColor.A}
 				}
+
+				// Standard Orientation (No Flip)
 				dst.Set(x, y, finalColor)
 			}
 		}
 
-		// 5. Save DDS Texture
+		// 5. Save to Temp PNG (for texconv)
+		settingsPath := getSettingsDir()
+		tempDir := filepath.Join(settingsPath, "Temp")
+		os.MkdirAll(tempDir, 0755)
+
+		tempPngPath := filepath.Join(tempDir, "temp_thumb.png")
+		fPng, err := os.Create(tempPngPath)
+		if err != nil {
+			dialog.ShowError(err, w)
+			return
+		}
+		png.Encode(fPng, dst)
+		fPng.Close()
+
+		// 6. Find & Run texconv.exe
+		texconvPath, err := findTool("texconv.exe")
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("texconv.exe not found.\nPlease place it in:\n%s\n\nError: %v", filepath.Join(settingsPath, "texconv.exe"), err), w)
+			return
+		}
+
+		// Command: texconv.exe -f BC7_UNORM_SRGB -y -o [TempDir] [PngPath]
+		cmd := exec.Command(texconvPath, "-f", "BC7_UNORM_SRGB", "-y", "-o", tempDir, tempPngPath)
+		// Hide Window
+		// cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} // Uncomment for windows specific hiding
+
+		if out, err := cmd.CombinedOutput(); err != nil {
+			dialog.ShowError(fmt.Errorf("texconv failed:\n%s", out), w)
+			return
+		}
+
+		// 7. Move DDS to Final Destination
 		// Path: Settings/input-pcvr/0/-4707359568332879775/[ID]
-		texDir := filepath.Join(InputDir, ThumbTexFolder)
+		// Note: InputDir is relative, lets resolve it absolutely
+		absInputDir := filepath.Join(settingsPath, "input-pcvr")
+		texDir := filepath.Join(absInputDir, ThumbTexFolder)
 		if err := os.MkdirAll(texDir, 0755); err != nil {
 			dialog.ShowError(fmt.Errorf("failed to create tex dir: %v", err), w)
 			return
 		}
-		
-		outDdsPath := filepath.Join(texDir, idStr)
-		_, err = writeDDS(outDdsPath, dst)
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("failed to save DDS: %v", err), w)
-			return
+
+		generatedDDS := filepath.Join(tempDir, "temp_thumb.dds")
+		outDdsPath := filepath.Join(texDir, idStr) // Saves as filename [ID] with no extension
+
+		os.Remove(outDdsPath)
+		if err := os.Rename(generatedDDS, outDdsPath); err != nil {
+			input, _ := os.ReadFile(generatedDDS)
+			os.WriteFile(outDdsPath, input, 0644)
 		}
 
-		// 6. Save Metadata File
+		// 8. Save Metadata File
 		// Path: Settings/input-pcvr/0/5353709876897953952/[ID]
-		metaDir := filepath.Join(InputDir, ThumbMetaFolder)
+		metaDir := filepath.Join(absInputDir, ThumbMetaFolder)
 		if err := os.MkdirAll(metaDir, 0755); err != nil {
 			dialog.ShowError(fmt.Errorf("failed to create meta dir: %v", err), w)
 			return
@@ -373,14 +706,18 @@ func main() {
 			return
 		}
 
-		dialog.ShowInformation("Success", "Thumbnail files generated in input folder.\nID: "+idStr, w)
-		statusLabel.SetText("Generated Thumbnail: " + idStr)
+		// Cleanup
+		os.Remove(tempPngPath)
+		os.Remove(generatedDDS)
+
+		dialog.ShowInformation("Success", "Thumbnail generated (BC7).\nID: "+idStr, w)
+		statusLabel.SetText("Generated: " + idStr)
 	}
 
 	btnGenThumb := widget.NewButton("Generate & Save Thumbnail", generateAndSaveThumbnail)
 
 	// --- REPACK / EXTRACT LOGIC ---
-	var showRepackDialog func() 
+	var showRepackDialog func() // Forward declaration
 
 	// Recursive Copy Helper
 	copyRecursive := func(src, dst string) error {
@@ -388,7 +725,6 @@ func main() {
 			if err != nil {
 				return err
 			}
-			// Compute relative path
 			relPath, err := filepath.Rel(src, path)
 			if err != nil {
 				return err
@@ -398,8 +734,6 @@ func main() {
 			if info.IsDir() {
 				return os.MkdirAll(dstPath, info.Mode())
 			}
-
-			// Skip non-regular files (pipes, devices, etc.)
 			if !info.Mode().IsRegular() {
 				return nil
 			}
@@ -422,17 +756,22 @@ func main() {
 	}
 
 	runExtract := func(echoPath string) error {
-		// Ensure parent folder exists
-		os.MkdirAll(ExtractedDir, 0755)
-
 		// Points to Settings/evrFileTools.exe
-		toolPath := filepath.Join(SettingsDir, "evrFileTools.exe")
+		toolPath, err := findTool("evrFileTools.exe")
+		if err != nil {
+			return err
+		}
+
+		// Output Dir
+		settingsPath := getSettingsDir()
+		extractDir := filepath.Join(settingsPath, "pcvr-extracted")
+		os.MkdirAll(extractDir, 0755)
 
 		cmd := exec.Command(toolPath,
 			"-mode", "extract",
 			"-packageName", PackageName,
 			"-dataDir", echoPath,
-			"-outputDir", ExtractedDir,
+			"-outputDir", extractDir,
 			"-tintsonly",
 		)
 		out, err := cmd.CombinedOutput()
@@ -444,9 +783,13 @@ func main() {
 
 	// Helper function for Part 1 of Repack: Execute Tool
 	executeRepackTool := func(echoPath string) error {
-		// 1. Prepare Input File for Tints
-		// Path: Settings/input-pcvr/0/3671295590506143214/4869319423857648486
-		tintDir := filepath.Join(InputDir, TintFolder)
+		// 1. Prepare Paths
+		settingsPath := getSettingsDir()
+		absInputDir := filepath.Join(settingsPath, "input-pcvr")
+		absOutputDir := filepath.Join(settingsPath, "output-both")
+
+		// 2. Prepare Input File for Tints
+		tintDir := filepath.Join(absInputDir, TintFolder)
 		if err := os.MkdirAll(tintDir, 0755); err != nil {
 			return fmt.Errorf("failed to create tint dir: %v", err)
 		}
@@ -460,19 +803,20 @@ func main() {
 			return fmt.Errorf("failed to write tint file: %v", err)
 		}
 
-		// 2. Run evrFileTools Replace
-		// Ensure output dir exists
-		os.MkdirAll(OutputDir, 0755)
+		// 3. Run evrFileTools Replace
+		os.MkdirAll(absOutputDir, 0755)
 
-		// Points to Settings/evrFileTools.exe
-		toolPath := filepath.Join(SettingsDir, "evrFileTools.exe")
+		toolPath, err := findTool("evrFileTools.exe")
+		if err != nil {
+			return err
+		}
 
 		cmd := exec.Command(toolPath,
 			"-mode", "replace",
-			"-outputDir", OutputDir,
+			"-outputDir", absOutputDir,
 			"-packageName", PackageName,
 			"-dataDir", echoPath,
-			"-inputDir", InputDir,
+			"-inputDir", absInputDir,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -483,10 +827,10 @@ func main() {
 
 	// Helper function for Part 2 of Repack: Push Files
 	pushRepackedFiles := func(echoPath string) error {
-		// 3. Move Files from OutputDir to Echo Data Dir
-		// We can reuse copyRecursive since OutputDir structure mirrors EchoDataDir (packages/manifests)
-		
-		srcPkg := filepath.Join(OutputDir, "packages")
+		settingsPath := getSettingsDir()
+		absOutputDir := filepath.Join(settingsPath, "output-both")
+
+		srcPkg := filepath.Join(absOutputDir, "packages")
 		dstPkg := filepath.Join(echoPath, "packages")
 		if _, err := os.Stat(srcPkg); err == nil {
 			if err := copyRecursive(srcPkg, dstPkg); err != nil {
@@ -494,7 +838,7 @@ func main() {
 			}
 		}
 
-		srcMan := filepath.Join(OutputDir, "manifests")
+		srcMan := filepath.Join(absOutputDir, "manifests")
 		dstMan := filepath.Join(echoPath, "manifests")
 		if _, err := os.Stat(srcMan); err == nil {
 			if err := copyRecursive(srcMan, dstMan); err != nil {
@@ -512,7 +856,9 @@ func main() {
 		modal.Resize(fyne.NewSize(600, 400))
 
 		// Check if extracted exists
-		_, errExtract := os.Stat(ExtractedDir)
+		settingsPath := getSettingsDir()
+		extractDir := filepath.Join(settingsPath, "pcvr-extracted")
+		_, errExtract := os.Stat(extractDir)
 		extractedExists := errExtract == nil
 
 		// UI Elements
@@ -539,7 +885,7 @@ func main() {
 					// Use a blocking dialog that runs extract in background to avoid freeze
 					loading := dialog.NewCustom("Extracting...", "Cancel", widget.NewProgressBarInfinite(), w)
 					loading.Show()
-					
+
 					go func() {
 						err := runExtract(appSettings.EchoVRDataPath)
 						loading.Hide()
@@ -547,7 +893,6 @@ func main() {
 							dialog.ShowError(err, w)
 						} else {
 							extractedExists = true
-							// Refresh the modal content on Main Thread if needed, mostly safe in Fyne
 							showRepackDialog()
 						}
 					}()
@@ -557,14 +902,14 @@ func main() {
 				content.Add(widget.NewLabel("Step 2: Modify & Repack"))
 
 				// Backup Logic
-				backupDir := filepath.Join(SettingsDir, BackupDirName)
+				backupDir := filepath.Join(settingsPath, BackupDirName)
 				_, errBackup := os.Stat(backupDir)
 				backupExists := errBackup == nil
 
 				backupUI := container.NewVBox()
 				if backupExists {
 					backupUI.Add(widget.NewLabel("Backup found."))
-					
+
 					btnRevert := widget.NewButton("Revert to Backup", func() {
 						loading := dialog.NewCustom("Restoring Backup...", "Cancel", widget.NewProgressBarInfinite(), w)
 						loading.Show()
@@ -579,7 +924,6 @@ func main() {
 							}
 						}()
 					})
-					// Style warning
 					btnRevert.Importance = widget.WarningImportance
 					backupUI.Add(btnRevert)
 
@@ -589,49 +933,40 @@ func main() {
 						loading := dialog.NewCustom("Backing up...", "Cancel", widget.NewProgressBarInfinite(), w)
 						loading.Show()
 						go func() {
-							// Ensure backup dir exists
 							os.MkdirAll(backupDir, 0755)
-							// Copy from EchoDataPath -> Settings/Backup
 							err := copyRecursive(appSettings.EchoVRDataPath, backupDir)
 							loading.Hide()
 							if err != nil {
 								dialog.ShowError(err, w)
 							} else {
 								dialog.ShowInformation("Backup", "Backup created successfully.", w)
-								// Refresh UI to show Revert button
 								showRepackDialog()
 							}
 						}()
 					}))
 				}
-				// Use Widget Card instead of Group
 				content.Add(widget.NewCard("Backup", "", backupUI))
 
 				content.Add(widget.NewSeparator())
 				content.Add(widget.NewLabel("Ready to Repack changes into game."))
 				content.Add(widget.NewButton("REPACK & APPLY", func() {
-					// 1. Show Loading (Repacking)
 					loading := dialog.NewCustom("Repacking...", "Cancel", widget.NewProgressBarInfinite(), w)
 					loading.Show()
-					
-					// 2. Execute Tool in background
+
 					go func() {
 						err := executeRepackTool(appSettings.EchoVRDataPath)
 						loading.Hide()
-						
+
 						if err != nil {
 							dialog.ShowError(err, w)
 							return
 						}
 
-						// 3. Prompt User to Push Files
 						dialog.ShowConfirm("Push files?", "Repack complete. Do you want to push files to the game?", func(confirm bool) {
 							if confirm {
-								// 4. Show Loading (Pushing)
 								pushLoading := dialog.NewCustom("Pushing files...", "Cancel", widget.NewProgressBarInfinite(), w)
 								pushLoading.Show()
 
-								// 5. Execute Push in background
 								go func() {
 									err := pushRepackedFiles(appSettings.EchoVRDataPath)
 									pushLoading.Hide()
@@ -656,17 +991,19 @@ func main() {
 	btnRepack := widget.NewButton("REPACK", showRepackDialog)
 
 	// --- LIST WIDGET ---
-	loadEntryToEditor := func(realIdx int) {
+	loadTintToEditor := func(realIdx int) {
 		unbindListeners()
 		isLoadingEntry = true
+		defer func() {
+			isLoadingEntry = false
+			bindListeners()
+		}()
 
 		loadFromTemp()
 
 		selectedListIndex = realIdx
 		t := CTint{}
 		if err := t.FromCosmeticEntry(currentCList.cosmeticEntries[realIdx]); err != nil {
-			isLoadingEntry = false
-			bindListeners()
 			return
 		}
 
@@ -681,15 +1018,76 @@ func main() {
 		secondaryHex.SetText(toHex(t.SecondaryColor_R, t.SecondaryColor_G, t.SecondaryColor_B))
 
 		thumbIdEntry.SetText(strconv.FormatInt(t.ThumbnailSymbol, 10))
+		refreshThumbnail(thumbIdEntry.Text)
+	}
+
+	loadTitleToEditor := func(realIdx int) {
+		unbindListeners()
+		isLoadingEntry = true
+		defer func() {
+			isLoadingEntry = false
+			bindListeners()
+		}()
+
+		loadFromTemp()
+
+		selectedListIndex = realIdx
+		t := CTitle{}
+		if err := t.FromCosmeticEntry(currentCList.cosmeticEntries[realIdx]); err != nil {
+			return
+		}
+
+		nameEntry.SetText(t.DisplayName)
+		descEntry.SetText(t.Description)
+		titleStringEntry.SetText(t.TitleString)
+		thumbIdEntry.SetText(strconv.FormatInt(t.ThumbnailSymbol, 10))
+		refreshThumbnail(thumbIdEntry.Text)
+	}
+
+	loadEmissiveToEditor := func(realIdx int) {
+		unbindListeners()
+		isLoadingEntry = true
+		defer func() {
+			isLoadingEntry = false
+			// Re-attach complex listener for colors
+			emissiveColorsEntry.OnChanged = onEmissiveColorsChanged
+			bindListeners()
+		}()
+
+		loadFromTemp()
+		selectedListIndex = realIdx
+		t := CEmissive{}
+		if err := t.FromCosmeticEntry(currentCList.cosmeticEntries[realIdx]); err != nil {
+			return
+		}
+
+		nameEntry.SetText(t.DisplayName)
+		descEntry.SetText(t.Description)
+		thumbIdEntry.SetText(strconv.FormatInt(t.ThumbnailSymbol, 10))
+
+		emissiveUnk1Entry.SetText(fmt.Sprintf("%f", t.Unk1))
+		emissiveUnk2Entry.SetText(fmt.Sprintf("%f", t.Unk2))
+		emissiveTexEntry.SetText(strconv.FormatInt(t.TextureSymbol, 10))
+
+		var colorStr strings.Builder
+		for _, c := range t.Colors {
+			ri, gi, bi := int(c[0]*255), int(c[1]*255), int(c[2]*255)
+			colorStr.WriteString(fmt.Sprintf("%02X%02X%02X\n", ri, gi, bi))
+		}
+		emissiveColorsEntry.SetText(colorStr.String())
+		refreshEmissivePreview(t.Colors)
 
 		refreshThumbnail(thumbIdEntry.Text)
-
-		isLoadingEntry = false
-		bindListeners()
 	}
 
 	searchEntry := widget.NewEntry()
-	searchEntry.PlaceHolder = "Search..."
+	searchEntry.PlaceHolder = "Search Tints..."
+
+	searchEntryTitles := widget.NewEntry()
+	searchEntryTitles.PlaceHolder = "Search Titles..."
+
+	searchEntryEmissives := widget.NewEntry()
+	searchEntryEmissives.PlaceHolder = "Search Emissives..."
 
 	tintList := widget.NewList(
 		func() int { return len(filteredIndices) },
@@ -701,9 +1099,34 @@ func main() {
 			item.(*widget.Label).SetText(dName)
 		},
 	)
-	tintList.OnSelected = func(id widget.ListItemID) { loadEntryToEditor(filteredIndices[id]) }
 
-	refreshFilter := func() {
+	titleList := widget.NewList(
+		func() int { return len(filteredTitleIndices) },
+		func() fyne.CanvasObject { return widget.NewLabel("Template") },
+		func(id widget.ListItemID, item fyne.CanvasObject) {
+			realIndex := filteredTitleIndices[id]
+			entry := currentCList.cosmeticEntries[realIndex]
+			dName := string(bytes.TrimRight(entry.cEntry.DisplayNameString[:], "\x00"))
+			item.(*widget.Label).SetText(dName)
+		},
+	)
+
+	emissiveList := widget.NewList(
+		func() int { return len(filteredEmissiveIndices) },
+		func() fyne.CanvasObject { return widget.NewLabel("Template") },
+		func(id widget.ListItemID, item fyne.CanvasObject) {
+			realIndex := filteredEmissiveIndices[id]
+			entry := currentCList.cosmeticEntries[realIndex]
+			dName := string(bytes.TrimRight(entry.cEntry.DisplayNameString[:], "\x00"))
+			item.(*widget.Label).SetText(dName)
+		},
+	)
+
+	tintList.OnSelected = func(id widget.ListItemID) { loadTintToEditor(filteredIndices[id]) }
+	titleList.OnSelected = func(id widget.ListItemID) { loadTitleToEditor(filteredTitleIndices[id]) }
+	emissiveList.OnSelected = func(id widget.ListItemID) { loadEmissiveToEditor(filteredEmissiveIndices[id]) }
+
+	refreshTintFilter := func() {
 		txt := strings.ToLower(searchEntry.Text)
 		filteredIndices = []int{}
 		for _, idx := range tintIndices {
@@ -714,17 +1137,63 @@ func main() {
 		}
 		tintList.Refresh()
 	}
-	searchEntry.OnChanged = func(s string) { refreshFilter() }
+	searchEntry.OnChanged = func(s string) { refreshTintFilter() }
+
+	refreshTitleFilter := func() {
+		txt := strings.ToLower(searchEntryTitles.Text)
+		filteredTitleIndices = []int{}
+		for _, idx := range titleIndices {
+			dName := strings.ToLower(string(bytes.TrimRight(currentCList.cosmeticEntries[idx].cEntry.DisplayNameString[:], "\x00")))
+			if txt == "" || strings.Contains(dName, txt) {
+				filteredTitleIndices = append(filteredTitleIndices, idx)
+			}
+		}
+		titleList.Refresh()
+	}
+	searchEntryTitles.OnChanged = func(s string) { refreshTitleFilter() }
+
+	refreshEmissiveFilter := func() {
+		txt := strings.ToLower(searchEntryEmissives.Text)
+		filteredEmissiveIndices = []int{}
+		for _, idx := range emissiveIndices {
+			dName := strings.ToLower(string(bytes.TrimRight(currentCList.cosmeticEntries[idx].cEntry.DisplayNameString[:], "\x00")))
+			if txt == "" || strings.Contains(dName, txt) {
+				filteredEmissiveIndices = append(filteredEmissiveIndices, idx)
+			}
+		}
+		emissiveList.Refresh()
+	}
+	searchEntryEmissives.OnChanged = func(s string) { refreshEmissiveFilter() }
 
 	refreshIndices := func() {
 		tintIndices = []int{}
+		titleIndices = []int{}
+		emissiveIndices = []int{}
 		tintSymbol := int64(ToSymbol("tint"))
+		titleSymbol := int64(ToSymbol("title"))
+		emissiveSymbol := int64(ToSymbol("emissive"))
+
 		for i, e := range currentCList.cosmeticEntries {
-			if e.cEntry.CosmeticTypeSymbol == tintSymbol {
-				tintIndices = append(tintIndices, i)
+			switch e.cEntry.CosmeticTypeSymbol {
+			case tintSymbol:
+				// Distinguish between Tint and Emissive
+				// Standard Tints have TextureSymbol == -1 and ExtData size 24 (2 colors)
+				// Also check internal name for "emissive"
+				internalName := strings.ToLower(string(bytes.TrimRight(e.cEntry.InternalNameString[:], "\x00")))
+				if !strings.Contains(internalName, "emissive") && e.cEntry.TextureSymbol == -1 && len(e.cEntryExtData) == 24 {
+					tintIndices = append(tintIndices, i)
+				} else {
+					emissiveIndices = append(emissiveIndices, i)
+				}
+			case emissiveSymbol:
+				emissiveIndices = append(emissiveIndices, i)
+			case titleSymbol:
+				titleIndices = append(titleIndices, i)
 			}
 		}
-		refreshFilter()
+		refreshTintFilter()
+		refreshTitleFilter()
+		refreshEmissiveFilter()
 	}
 
 	initData := func() {
@@ -732,9 +1201,12 @@ func main() {
 		copy(dataCopy, embeddedOriginal)
 		os.WriteFile(tempFilePath, dataCopy, 0644)
 		loadFromTemp()
-		defer func() { if r := recover(); r != nil {} }()
+		defer func() {
+			if r := recover(); r != nil {
+			}
+		}()
 		refreshIndices()
-		statusLabel.SetText(fmt.Sprintf("Loaded. Temp file created."))
+		statusLabel.SetText("Loaded. Temp file created.")
 	}
 
 	// --- EXTERNAL FILE LOADING ---
@@ -800,7 +1272,7 @@ func main() {
 			}
 		}, w)
 	})
-	
+
 	btnSetDataPath := widget.NewButton("Browse", func() {
 		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
 			if uri != nil {
@@ -833,16 +1305,16 @@ func main() {
 			return
 		}
 
-		// Ensure directories exist: Settings/input-pcvr/0/3671295590506143214
-		tintDir := filepath.Join(InputDir, TintFolder)
+		// Ensure directories exist
+		settingsPath := getSettingsDir()
+		absInputDir := filepath.Join(settingsPath, "input-pcvr")
+		tintDir := filepath.Join(absInputDir, TintFolder)
 		if err := os.MkdirAll(tintDir, 0755); err != nil {
 			dialog.ShowError(err, w)
 			return
 		}
 
-		// Write to: Settings/input-pcvr/0/3671295590506143214/4869319423857648486
 		targetFile := filepath.Join(tintDir, TintFileName)
-		
 		if err := os.WriteFile(targetFile, b, 0644); err != nil {
 			dialog.ShowError(err, w)
 			return
@@ -852,29 +1324,89 @@ func main() {
 	})
 
 	// --- LAYOUT ---
+	// Shared editor components
+
 	colorForm := widget.NewForm(
 		widget.NewFormItem("Main", primaryHex),
 		widget.NewFormItem("Secondary", secondaryHex),
 	)
 
-	// Modified Layout: Repack at Top
-	topRow := container.NewVBox(
-		container.NewGridWithColumns(1, btnRepack),
-		container.NewGridWithColumns(2, btnSettings, btnLoadFile),
-	)
-	
-	left := container.NewBorder(container.NewVBox(topRow, widget.NewSeparator(), searchEntry), nil, nil, nil, tintList)
+	previewLabel := widget.NewLabel("Preview")
+	previewContainer := container.NewCenter(thumbContainer)
 
-	right := container.NewVBox(
-		widget.NewLabel("Preview"),
-		container.NewCenter(thumbContainer),
+	// Editor panel (right side)
+	// This will be dynamically adjusted based on the selected tab
+	editorContainer := container.NewVBox(
+		previewLabel,
+		previewContainer,
+		emissivePreviewLabel,
+		emissivePreviewWrapper,
 		btnGenThumb,
 		widget.NewSeparator(),
 		widget.NewLabel("Info"), nameEntry, descEntry, thumbIdEntry,
 		widget.NewSeparator(),
-		widget.NewLabel("Colors"), colorForm,
-		layout.NewSpacer(), saveBtn, statusLabel,
 	)
+
+	tintEditor := container.NewVBox(widget.NewLabel("Colors"), colorForm)
+	titleEditor := container.NewVBox(widget.NewForm(widget.NewFormItem("Title Text", titleStringEntry)))
+	emissiveEditor := container.NewVBox(
+		widget.NewLabel("Colors (Hex, one per line)"),
+		container.NewGridWrap(fyne.NewSize(400, 150), emissiveColorsEntry),
+	)
+
+	editorContainer.Add(tintEditor) // Default to showing tint editor
+
+	right := container.NewVBox(
+		editorContainer,
+		layout.NewSpacer(),
+		saveBtn,
+		statusLabel,
+	)
+
+	tintTabContent := container.NewBorder(container.NewVBox(searchEntry), nil, nil, nil, tintList)
+	titleTabContent := container.NewBorder(container.NewVBox(searchEntryTitles), nil, nil, nil, titleList)
+	emissiveTabContent := container.NewBorder(container.NewVBox(searchEntryEmissives), nil, nil, nil, emissiveList)
+
+	tabs = container.NewAppTabs(
+		container.NewTabItem("Tints", tintTabContent),
+		container.NewTabItem("Titles", titleTabContent),
+		container.NewTabItem("Emissives", emissiveTabContent),
+	)
+
+	tabs.OnSelected = func(tab *container.TabItem) {
+		switch tab.Text {
+		case "Tints":
+			editorContainer.Objects[len(editorContainer.Objects)-1] = tintEditor
+			previewLabel.Show()
+			previewContainer.Show()
+			emissivePreviewLabel.Hide()
+			emissivePreviewWrapper.Hide()
+			btnGenThumb.Show()
+		case "Titles":
+			editorContainer.Objects[len(editorContainer.Objects)-1] = titleEditor
+			previewLabel.Hide()
+			previewContainer.Hide()
+			emissivePreviewLabel.Hide()
+			emissivePreviewWrapper.Hide()
+			btnGenThumb.Hide()
+		case "Emissives":
+			editorContainer.Objects[len(editorContainer.Objects)-1] = emissiveEditor
+			previewLabel.Hide()
+			previewContainer.Hide()
+			emissivePreviewLabel.Show()
+			emissivePreviewWrapper.Show()
+			btnGenThumb.Hide()
+		}
+		editorContainer.Refresh()
+	}
+
+	// --- Final Layout ---
+	topRow := container.NewVBox(
+		container.NewGridWithColumns(1, btnRepack),
+		container.NewGridWithColumns(2, btnSettings, btnLoadFile),
+	)
+
+	left := container.NewBorder(topRow, nil, nil, nil, tabs)
 
 	w.SetContent(container.NewHSplit(left, container.NewPadded(container.NewVScroll(right))))
 
@@ -898,11 +1430,11 @@ func main() {
 // --- THUMBNAIL DOWNLOADER ---
 func downloadAndExtractThumbnails() {
 	url := "https://api.github.com/repos/heisthecat31/EchoVR-Tint-Editor/releases/tags/Editor"
-	zipName := filepath.Join(SettingsDir, "thumbnail.zip")
-	targetDir := filepath.Join(SettingsDir, "thumbnail")
+	settingsPath := getSettingsDir()
+	os.MkdirAll(settingsPath, 0755)
 
-	// Ensure Settings dir exists
-	os.MkdirAll(SettingsDir, 0755)
+	zipName := filepath.Join(settingsPath, "thumbnail.zip")
+	targetDir := filepath.Join(settingsPath, "thumbnail")
 
 	// Check if already extracted
 	if _, err := os.Stat(targetDir); err == nil {
@@ -956,19 +1488,14 @@ func downloadAndExtractThumbnails() {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("Failed to download: HTTP %d\n", resp.StatusCode)
-		return
-	}
-
 	out, err := os.Create(zipName)
 	if err != nil {
 		fmt.Println("Failed to create zip file:", err)
 		return
 	}
-	
+
 	_, err = io.Copy(out, resp.Body)
-	out.Close() // Close before reading
+	out.Close()
 	if err != nil {
 		fmt.Println("Failed to save zip:", err)
 		return
@@ -986,8 +1513,7 @@ func downloadAndExtractThumbnails() {
 
 	for _, f := range r.File {
 		fpath := filepath.Join(targetDir, f.Name)
-		
-		// Check for ZipSlip
+
 		if !strings.HasPrefix(fpath, filepath.Clean(targetDir)+string(os.PathSeparator)) {
 			continue
 		}
@@ -1016,8 +1542,7 @@ func downloadAndExtractThumbnails() {
 		outFile.Close()
 		rc.Close()
 	}
-	
-	// Clean up zip
+
 	os.Remove(zipName)
 	fmt.Println("Thumbnails downloaded and extracted.")
 }
@@ -1030,11 +1555,9 @@ func writeMetadata(filename string) error {
 	}
 	defer f.Close()
 
-	// 1. Padding (FFs) - 192 bytes
 	padding := bytes.Repeat([]byte{0xFF}, 192)
 	f.Write(padding)
 
-	// 2. Exact Static Tail Structure (64 bytes)
 	tail := []byte{
 		0x01, 0x00, 0x00, 0x00,
 		0x80, 0x00, 0x00, 0x00,
@@ -1049,93 +1572,13 @@ func writeMetadata(filename string) error {
 		0x80, 0x00, 0x00, 0x00,
 		0x80, 0x00, 0x00, 0x00,
 		0x01, 0x00, 0x00, 0x00,
-		// Static values:
-		0x80, 0x00, 0x01, 0x00,
+		0x04, 0x56, 0x00, 0x00,
 		0x00, 0x40, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00,
 	}
 
 	f.Write(tail)
 	return nil
-}
-
-// --- DDS WRITER (Uncompressed RGBA8) ---
-func writeDDS(filename string, img image.Image) (uint32, error) {
-	f, err := os.Create(filename)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	const (
-		DDS_MAGIC        = 0x20534444
-		DDS_HEADER_SIZE  = 124
-		DDSD_CAPS        = 0x1
-		DDSD_HEIGHT      = 0x2
-		DDSD_WIDTH       = 0x4
-		DDSD_PITCH       = 0x8
-		DDSD_PIXELFORMAT = 0x1000
-		DDPF_ALPHAPIXELS = 0x1
-		DDPF_RGB         = 0x40
-		DDSCAPS_TEXTURE  = 0x1000
-	)
-
-	bounds := img.Bounds()
-	width := uint32(bounds.Dx())
-	height := uint32(bounds.Dy())
-	pitch := width * 4 // 4 bytes per pixel
-
-	// Write Magic (4 bytes)
-	binary.Write(f, binary.LittleEndian, uint32(DDS_MAGIC))
-
-	// Write Header (124 bytes)
-	binary.Write(f, binary.LittleEndian, uint32(DDS_HEADER_SIZE))
-	binary.Write(f, binary.LittleEndian, uint32(DDSD_CAPS|DDSD_HEIGHT|DDSD_WIDTH|DDSD_PITCH|DDSD_PIXELFORMAT))
-	binary.Write(f, binary.LittleEndian, height)
-	binary.Write(f, binary.LittleEndian, width)
-	binary.Write(f, binary.LittleEndian, pitch)
-	binary.Write(f, binary.LittleEndian, uint32(0))
-	binary.Write(f, binary.LittleEndian, uint32(0))
-	for i := 0; i < 11; i++ {
-		binary.Write(f, binary.LittleEndian, uint32(0))
-	}
-
-	// Pixel Format
-	binary.Write(f, binary.LittleEndian, uint32(32))
-	binary.Write(f, binary.LittleEndian, uint32(DDPF_RGB|DDPF_ALPHAPIXELS))
-	binary.Write(f, binary.LittleEndian, uint32(0))
-	binary.Write(f, binary.LittleEndian, uint32(32))
-	binary.Write(f, binary.LittleEndian, uint32(0x00FF0000))
-	binary.Write(f, binary.LittleEndian, uint32(0x0000FF00))
-	binary.Write(f, binary.LittleEndian, uint32(0x000000FF))
-	binary.Write(f, binary.LittleEndian, uint32(0xFF000000))
-
-	// Caps
-	binary.Write(f, binary.LittleEndian, uint32(DDSCAPS_TEXTURE))
-	binary.Write(f, binary.LittleEndian, uint32(0))
-	binary.Write(f, binary.LittleEndian, uint32(0))
-	binary.Write(f, binary.LittleEndian, uint32(0))
-	binary.Write(f, binary.LittleEndian, uint32(0))
-
-	// Write Pixel Data (BGRA)
-	drawImg := image.NewRGBA(bounds)
-	draw.Draw(drawImg, bounds, img, bounds.Min, draw.Src)
-
-	// Calculate Data Size
-	dataSize := uint32(0)
-	for y := 0; y < int(height); y++ {
-		for x := 0; x < int(width); x++ {
-			r, g, b, a := drawImg.At(x, y).RGBA()
-			binary.Write(f, binary.LittleEndian, uint8(b>>8))
-			binary.Write(f, binary.LittleEndian, uint8(g>>8))
-			binary.Write(f, binary.LittleEndian, uint8(r>>8))
-			binary.Write(f, binary.LittleEndian, uint8(a>>8))
-			dataSize += 4
-		}
-	}
-
-	totalSize := 4 + 124 + dataSize // Magic + Header + Data
-	return totalSize, nil
 }
 
 // --- STANDARD HELPERS ---
