@@ -263,7 +263,7 @@ func (c *CEmissive) ToCosmeticEntry() (cosmeticEntry, error) {
 	foo := cosmeticEntry{}
 	foo.cEntry = NewCDescriptor() // init default values
 
-	foo.cEntry.CosmeticTypeSymbol = int64(ToSymbol("tint"))
+	foo.cEntry.CosmeticTypeSymbol = int64(ToSymbol("emissive"))
 
 	foo.cEntry.InternalNameSymbol = int64(ToSymbol(strings.TrimSpace(c.InternalName)))
 	foo.cEntry.InternalNameSymbol2 = foo.cEntry.InternalNameSymbol
