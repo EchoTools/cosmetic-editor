@@ -817,6 +817,7 @@ func main() {
 			"-packageName", PackageName,
 			"-dataDir", echoPath,
 			"-inputDir", absInputDir,
+			"-ignoreOutputRestrictions",
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -1179,8 +1180,14 @@ func main() {
 				// Distinguish between Tint and Emissive
 				// Standard Tints have TextureSymbol == -1 and ExtData size 24 (2 colors)
 				// Also check internal name for "emissive"
-				internalName := strings.ToLower(string(bytes.TrimRight(e.cEntry.InternalNameString[:], "\x00")))
-				if !strings.Contains(internalName, "emissive") && e.cEntry.TextureSymbol == -1 && len(e.cEntryExtData) == 24 {
+				// Also check Unk values (if non-zero, likely emissive)
+				isEmissive := strings.Contains(strings.ToLower(string(bytes.TrimRight(e.cEntry.InternalNameString[:], "\x00"))), "emissive") ||
+					e.cEntry.TextureSymbol != -1 ||
+					len(e.cEntryExtData) != 24 ||
+					e.cEntry.EmissiveUnk1 != 0 ||
+					e.cEntry.EmissiveUnk2 != 0
+
+				if !isEmissive {
 					tintIndices = append(tintIndices, i)
 				} else {
 					emissiveIndices = append(emissiveIndices, i)
