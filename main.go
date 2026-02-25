@@ -61,6 +61,8 @@ var (
 	filteredTitleIndices    []int
 	emissiveIndices         []int
 	filteredEmissiveIndices []int
+	fanfareIndices          []int
+	filteredFanfareIndices  []int
 	selectedListIndex       int = -1
 
 	// Flags
@@ -72,6 +74,11 @@ var (
 	emissiveUnk2Entry   *widget.Entry
 	emissiveTexEntry    *widget.Entry
 	emissiveColorsEntry *widget.Entry
+	raritySelect        *widget.Select
+	fanfare1Entry       *widget.Entry
+	fanfare2Entry       *widget.Entry
+	searchEntryFanfares *widget.Entry
+	fanfareList         *widget.List
 
 	// File Paths
 	// tempFilePath is initialized in main() to ensure it uses the correct separator/path
@@ -79,6 +86,29 @@ var (
 	settingsFile = "settings.json"
 	appSettings  AppSettings
 )
+
+// --- RARITY DEFINITIONS ---
+var rarityNameToSymbol = map[string]int64{
+	"Default":   RarityDefault,
+	"Common":    RarityCommon,
+	"Fine":      RarityFine,
+	"Superb":    RaritySuperb,
+	"Epic":      RarityEpic,
+	"Legendary": RarityLegendary,
+	"Mythic":    RarityMythic,
+}
+
+var raritySymbolToName = map[int64]string{
+	RarityDefault:   "Default",
+	RarityCommon:    "Common",
+	RarityFine:      "Fine",
+	RaritySuperb:    "Superb",
+	RarityEpic:      "Epic",
+	RarityLegendary: "Legendary",
+	RarityMythic:    "Mythic",
+}
+
+var rarityOptions = []string{"Default", "Common", "Fine", "Superb", "Epic", "Legendary", "Mythic"}
 
 // --- CONSTANTS FOR PATHS ---
 const (
@@ -196,6 +226,21 @@ func main() {
 	emissiveUnk2Entry = widget.NewEntry()
 	emissiveTexEntry = widget.NewEntry()
 	emissiveColorsEntry = widget.NewMultiLineEntry()
+	raritySelect = widget.NewSelect(rarityOptions, nil)
+	fanfare1Entry = widget.NewEntry()
+	fanfare2Entry = widget.NewEntry()
+	searchEntryFanfares = widget.NewEntry()
+	searchEntryFanfares.PlaceHolder = "Search Fanfares..."
+	fanfareList = widget.NewList(
+		func() int { return len(filteredFanfareIndices) },
+		func() fyne.CanvasObject { return widget.NewLabel("Template") },
+		func(id widget.ListItemID, item fyne.CanvasObject) {
+			realIndex := filteredFanfareIndices[id]
+			entry := currentCList.cosmeticEntries[realIndex]
+			dName := string(bytes.TrimRight(entry.cEntry.DisplayNameString[:], "\x00"))
+			item.(*widget.Label).SetText(dName)
+		},
+	)
 
 	thumbImage := canvas.NewImageFromResource(nil)
 	thumbImage.FillMode = canvas.ImageFillContain
@@ -218,7 +263,7 @@ func main() {
 	emissivePreviewLabel.Hide()
 	emissivePreviewWrapper.Hide()
 
-	// HEX ENTRIES (Renamed to Main/Secondary)
+	// HEX ENTRIES (Main/Secondary)
 	primaryHex := widget.NewEntry()
 	primaryHex.PlaceHolder = "FFFFFF"
 	secondaryHex := widget.NewEntry()
@@ -307,6 +352,13 @@ func main() {
 			}
 			modifier(t)
 			newEntry, err = t.ToCosmeticEntry()
+		} else if tabs.Selected().Text == "Fanfares" {
+			t := &CFanfare{}
+			if err := t.FromCosmeticEntry(entry); err != nil {
+				return
+			}
+			modifier(t)
+			newEntry, err = t.ToCosmeticEntry()
 		}
 
 		if err != nil {
@@ -332,6 +384,8 @@ func main() {
 				t.DisplayName = s
 			case *CEmissive:
 				t.DisplayName = s
+			case *CFanfare:
+				t.DisplayName = s
 			}
 		})
 	}
@@ -344,6 +398,8 @@ func main() {
 				t.Description = s
 			case *CEmissive:
 				t.Description = s
+			case *CFanfare:
+				t.Description = s
 			}
 		})
 	}
@@ -352,11 +408,23 @@ func main() {
 		if idStr == "" {
 			return
 		}
-		// Check Auto-Downloaded Assets Path
+
+		// Paths to check for thumbnails
+		pathsToCheck := []string{}
+
+		// 1. Configured AssetsPath
 		if appSettings.AssetsPath != "" {
-			// Look for png files in the folder (e.g. symbol.png)
-			// The zip usually contains images named by symbol
-			originalPath := filepath.Join(appSettings.AssetsPath, idStr+".png")
+			pathsToCheck = append(pathsToCheck, filepath.Join(appSettings.AssetsPath, idStr+".png"))
+		}
+
+		// 2. Settings/thumbnail (relative to settings dir)
+		settingsPath := getSettingsDir()
+		pathsToCheck = append(pathsToCheck, filepath.Join(settingsPath, "thumbnail", idStr+".png"))
+
+		// 3. thumbnail (relative to CWD)
+		pathsToCheck = append(pathsToCheck, filepath.Join("thumbnail", idStr+".png"))
+
+		for _, originalPath := range pathsToCheck {
 			if _, err := os.Stat(originalPath); err == nil {
 				thumbImage.File = originalPath
 				thumbImage.Refresh()
@@ -378,6 +446,8 @@ func main() {
 				case *CTitle:
 					t.ThumbnailSymbol = id
 				case *CEmissive:
+					t.ThumbnailSymbol = id
+				case *CFanfare:
 					t.ThumbnailSymbol = id
 				}
 			})
@@ -403,10 +473,45 @@ func main() {
 			applyChange(func(v interface{}) {
 				if t, ok := v.(*CTint); ok {
 					if isPrimary {
-						t.PrimaryColor_R, t.PrimaryColor_G, t.PrimaryColor_B = r, g, b
-					} else {
 						t.SecondaryColor_R, t.SecondaryColor_G, t.SecondaryColor_B = r, g, b
+					} else {
+						t.PrimaryColor_R, t.PrimaryColor_G, t.PrimaryColor_B = r, g, b
 					}
+				}
+			})
+		}
+	}
+
+	onRarityChange := func(s string) {
+		selectedRaritySymbol := rarityNameToSymbol[s]
+		applyChange(func(v interface{}) {
+			switch t := v.(type) {
+			case *CTint:
+				t.Rarity = selectedRaritySymbol
+			case *CTitle:
+				t.Rarity = selectedRaritySymbol
+			case *CEmissive:
+				t.Rarity = selectedRaritySymbol
+			case *CFanfare:
+				t.Rarity = selectedRaritySymbol
+			}
+		})
+	}
+
+	onFanfare1Change := func(s string) {
+		if id, err := strconv.ParseUint(s, 10, 32); err == nil {
+			applyChange(func(v interface{}) {
+				if t, ok := v.(*CFanfare); ok {
+					t.Fanfare1ID = uint32(id)
+				}
+			})
+		}
+	}
+	onFanfare2Change := func(s string) {
+		if id, err := strconv.ParseUint(s, 10, 32); err == nil {
+			applyChange(func(v interface{}) {
+				if t, ok := v.(*CFanfare); ok {
+					t.Fanfare2ID = uint32(id)
 				}
 			})
 		}
@@ -529,12 +634,18 @@ func main() {
 		emissiveUnk2Entry.OnChanged = nil
 		emissiveTexEntry.OnChanged = nil
 		emissiveColorsEntry.OnChanged = nil
+		raritySelect.OnChanged = nil
+		fanfare1Entry.OnChanged = nil
+		fanfare2Entry.OnChanged = nil
 	}
 
 	bindListeners := func() {
 		nameEntry.OnChanged = onName
 		descEntry.OnChanged = onDesc
 		thumbIdEntry.OnChanged = onThumb
+		raritySelect.OnChanged = onRarityChange
+		fanfare1Entry.OnChanged = onFanfare1Change
+		fanfare2Entry.OnChanged = onFanfare2Change
 
 		if tabs.Selected().Text == "Tints" {
 			primaryHex.OnChanged = onHexChange(true)
@@ -630,11 +741,23 @@ func main() {
 				currColor := color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(a >> 8)}
 
 				finalColor := currColor
-				// SWAPPED LOGIC: Map template source to user selection
-				if isSimilar(currColor, srcPrimary, 80.0) {
+				wasReplaced := false
+				if isSimilar(currColor, srcPrimary, 20.0) {
 					finalColor = color.RGBA{cSec.R, cSec.G, cSec.B, currColor.A}
-				} else if isSimilar(currColor, srcSecondary, 80.0) {
+					wasReplaced = true
+				} else if isSimilar(currColor, srcSecondary, 20.0) {
 					finalColor = color.RGBA{cPrim.R, cPrim.G, cPrim.B, currColor.A}
+					wasReplaced = true
+				}
+
+				if wasReplaced {
+					darkenFactor := float32(0.6)
+					r_dark := float32(finalColor.R) * darkenFactor
+					g_dark := float32(finalColor.G) * darkenFactor
+					b_dark := float32(finalColor.B) * darkenFactor
+					finalColor.R = uint8(r_dark)
+					finalColor.G = uint8(g_dark)
+					finalColor.B = uint8(b_dark)
 				}
 
 				// Standard Orientation (No Flip)
@@ -769,10 +892,12 @@ func main() {
 
 		cmd := exec.Command(toolPath,
 			"-mode", "extract",
-			"-packageName", PackageName,
-			"-dataDir", echoPath,
-			"-outputDir", extractDir,
-			"-tintsonly",
+			"-package", PackageName,
+			"-data", echoPath,
+			"-output", extractDir,
+			"-export", "tints",
+			"-decimal-names",
+			"-force",
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -782,7 +907,7 @@ func main() {
 	}
 
 	// Helper function for Part 1 of Repack: Execute Tool
-	executeRepackTool := func(echoPath string) error {
+	executeRepackTool := func(echoPath string) (string, error) {
 		// 1. Prepare Paths
 		settingsPath := getSettingsDir()
 		absInputDir := filepath.Join(settingsPath, "input-pcvr")
@@ -791,16 +916,16 @@ func main() {
 		// 2. Prepare Input File for Tints
 		tintDir := filepath.Join(absInputDir, TintFolder)
 		if err := os.MkdirAll(tintDir, 0755); err != nil {
-			return fmt.Errorf("failed to create tint dir: %v", err)
+			return "", fmt.Errorf("failed to create tint dir: %v", err)
 		}
 
 		outFile := filepath.Join(tintDir, TintFileName)
 		b, err := cosmeticListToBytes(currentCList)
 		if err != nil {
-			return fmt.Errorf("failed to serialize tint data: %v", err)
+			return "", fmt.Errorf("failed to serialize tint data: %v", err)
 		}
 		if err := os.WriteFile(outFile, b, 0644); err != nil {
-			return fmt.Errorf("failed to write tint file: %v", err)
+			return "", fmt.Errorf("failed to write tint file: %v", err)
 		}
 
 		// 3. Run evrFileTools Replace
@@ -808,22 +933,23 @@ func main() {
 
 		toolPath, err := findTool("evrFileTools.exe")
 		if err != nil {
-			return err
+			return "", err
 		}
 
 		cmd := exec.Command(toolPath,
 			"-mode", "replace",
-			"-outputDir", absOutputDir,
-			"-packageName", PackageName,
-			"-dataDir", echoPath,
-			"-inputDir", absInputDir,
+			"-output", absOutputDir,
+			"-package", PackageName,
+			"-data", echoPath,
+			"-input", absInputDir,
 			"-ignoreOutputRestrictions",
+			"-force",
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("repack failed: %v\nOutput: %s", err, string(out))
+			return string(out), fmt.Errorf("repack failed: %v\nOutput: %s", err, string(out))
 		}
-		return nil
+		return string(out), nil
 	}
 
 	// Helper function for Part 2 of Repack: Push Files
@@ -859,8 +985,12 @@ func main() {
 		// Check if extracted exists
 		settingsPath := getSettingsDir()
 		extractDir := filepath.Join(settingsPath, "pcvr-extracted")
-		_, errExtract := os.Stat(extractDir)
-		extractedExists := errExtract == nil
+
+		// Check for specific tint folder (decimal symbol)
+		// Check both root (flat extract) and chunk 0 (preserve-groups extract)
+		_, errFlat := os.Stat(filepath.Join(extractDir, "3671295590506143214"))
+		_, errGroup := os.Stat(filepath.Join(extractDir, "0", "3671295590506143214"))
+		extractedExists := errFlat == nil || errGroup == nil
 
 		// UI Elements
 		lblPath := widget.NewLabel(appSettings.EchoVRDataPath)
@@ -955,8 +1085,15 @@ func main() {
 					loading.Show()
 
 					go func() {
-						err := executeRepackTool(appSettings.EchoVRDataPath)
+						output, err := executeRepackTool(appSettings.EchoVRDataPath)
 						loading.Hide()
+
+						// Always print output for debugging
+						if output != "" {
+							fmt.Println("--- Repack Tool Output ---")
+							fmt.Println(output)
+							fmt.Println("--------------------------")
+						}
 
 						if err != nil {
 							dialog.ShowError(err, w)
@@ -1015,8 +1152,14 @@ func main() {
 			ri, gi, bi := int(r*255), int(g*255), int(b*255)
 			return fmt.Sprintf("%02X%02X%02X", ri, gi, bi)
 		}
-		primaryHex.SetText(toHex(t.PrimaryColor_R, t.PrimaryColor_G, t.PrimaryColor_B))
-		secondaryHex.SetText(toHex(t.SecondaryColor_R, t.SecondaryColor_G, t.SecondaryColor_B))
+		primaryHex.SetText(toHex(t.SecondaryColor_R, t.SecondaryColor_G, t.SecondaryColor_B))
+		secondaryHex.SetText(toHex(t.PrimaryColor_R, t.PrimaryColor_G, t.PrimaryColor_B))
+
+		if name, ok := raritySymbolToName[t.Rarity]; ok {
+			raritySelect.SetSelected(name)
+		} else {
+			raritySelect.SetSelected("Default") // Fallback
+		}
 
 		thumbIdEntry.SetText(strconv.FormatInt(t.ThumbnailSymbol, 10))
 		refreshThumbnail(thumbIdEntry.Text)
@@ -1041,6 +1184,13 @@ func main() {
 		nameEntry.SetText(t.DisplayName)
 		descEntry.SetText(t.Description)
 		titleStringEntry.SetText(t.TitleString)
+
+		if name, ok := raritySymbolToName[t.Rarity]; ok {
+			raritySelect.SetSelected(name)
+		} else {
+			raritySelect.SetSelected("Default") // Fallback
+		}
+
 		thumbIdEntry.SetText(strconv.FormatInt(t.ThumbnailSymbol, 10))
 		refreshThumbnail(thumbIdEntry.Text)
 	}
@@ -1064,6 +1214,13 @@ func main() {
 
 		nameEntry.SetText(t.DisplayName)
 		descEntry.SetText(t.Description)
+
+		if name, ok := raritySymbolToName[t.Rarity]; ok {
+			raritySelect.SetSelected(name)
+		} else {
+			raritySelect.SetSelected("Default") // Fallback
+		}
+
 		thumbIdEntry.SetText(strconv.FormatInt(t.ThumbnailSymbol, 10))
 
 		emissiveUnk1Entry.SetText(fmt.Sprintf("%f", t.Unk1))
@@ -1127,6 +1284,37 @@ func main() {
 	titleList.OnSelected = func(id widget.ListItemID) { loadTitleToEditor(filteredTitleIndices[id]) }
 	emissiveList.OnSelected = func(id widget.ListItemID) { loadEmissiveToEditor(filteredEmissiveIndices[id]) }
 
+	loadFanfareToEditor := func(realIdx int) {
+		unbindListeners()
+		isLoadingEntry = true
+		defer func() {
+			isLoadingEntry = false
+			bindListeners()
+		}()
+
+		loadFromTemp()
+
+		selectedListIndex = realIdx
+		t := CFanfare{}
+		if err := t.FromCosmeticEntry(currentCList.cosmeticEntries[realIdx]); err != nil {
+			return
+		}
+
+		nameEntry.SetText(t.DisplayName)
+		descEntry.SetText(t.Description)
+
+		if name, ok := raritySymbolToName[t.Rarity]; ok {
+			raritySelect.SetSelected(name)
+		} else {
+			raritySelect.SetSelected("Default") // Fallback
+		}
+		fanfare1Entry.SetText(strconv.FormatUint(uint64(t.Fanfare1ID), 10))
+		fanfare2Entry.SetText(strconv.FormatUint(uint64(t.Fanfare2ID), 10))
+		thumbIdEntry.SetText(strconv.FormatInt(t.ThumbnailSymbol, 10))
+		refreshThumbnail(thumbIdEntry.Text)
+	}
+	fanfareList.OnSelected = func(id widget.ListItemID) { loadFanfareToEditor(filteredFanfareIndices[id]) }
+
 	refreshTintFilter := func() {
 		txt := strings.ToLower(searchEntry.Text)
 		filteredIndices = []int{}
@@ -1166,21 +1354,37 @@ func main() {
 	}
 	searchEntryEmissives.OnChanged = func(s string) { refreshEmissiveFilter() }
 
+	refreshFanfareFilter := func() {
+		txt := strings.ToLower(searchEntryFanfares.Text)
+		filteredFanfareIndices = []int{}
+		for _, idx := range fanfareIndices {
+			dName := strings.ToLower(string(bytes.TrimRight(currentCList.cosmeticEntries[idx].cEntry.DisplayNameString[:], "\x00")))
+			if txt == "" || strings.Contains(dName, txt) {
+				filteredFanfareIndices = append(filteredFanfareIndices, idx)
+			}
+		}
+		fanfareList.Refresh()
+	}
+	searchEntryFanfares.OnChanged = func(s string) { refreshFanfareFilter() }
+
 	refreshIndices := func() {
 		tintIndices = []int{}
 		titleIndices = []int{}
 		emissiveIndices = []int{}
+		fanfareIndices = []int{}
 		tintSymbol := int64(ToSymbol("tint"))
 		titleSymbol := int64(ToSymbol("title"))
 		emissiveSymbol := int64(ToSymbol("emissive"))
 
 		for i, e := range currentCList.cosmeticEntries {
+			// Identify fanfares first, as they can have any cosmetic type symbol
+			if e.cEntry.WWiseSoundBankID2 != 0 {
+				fanfareIndices = append(fanfareIndices, i)
+				continue // Go to next item so it's not added to other lists
+			}
+
 			switch e.cEntry.CosmeticTypeSymbol {
 			case tintSymbol:
-				// Distinguish between Tint and Emissive
-				// Standard Tints have TextureSymbol == -1 and ExtData size 24 (2 colors)
-				// Also check internal name for "emissive"
-				// Also check Unk values (if non-zero, likely emissive)
 				isEmissive := strings.Contains(strings.ToLower(string(bytes.TrimRight(e.cEntry.InternalNameString[:], "\x00"))), "emissive") ||
 					e.cEntry.TextureSymbol != -1 ||
 					len(e.cEntryExtData) != 24 ||
@@ -1201,6 +1405,7 @@ func main() {
 		refreshTintFilter()
 		refreshTitleFilter()
 		refreshEmissiveFilter()
+		refreshFanfareFilter()
 	}
 
 	initData := func() {
@@ -1351,6 +1556,7 @@ func main() {
 		btnGenThumb,
 		widget.NewSeparator(),
 		widget.NewLabel("Info"), nameEntry, descEntry, thumbIdEntry,
+		widget.NewForm(widget.NewFormItem("Rarity", raritySelect)),
 		widget.NewSeparator(),
 	)
 
@@ -1360,8 +1566,15 @@ func main() {
 		widget.NewLabel("Colors (Hex, one per line)"),
 		container.NewGridWrap(fyne.NewSize(400, 150), emissiveColorsEntry),
 	)
+	fanfareEditor := container.NewVBox(
+		widget.NewForm(
+			widget.NewFormItem("Explosion Sound ID", fanfare1Entry),
+			widget.NewFormItem("Fanfare Sound ID", fanfare2Entry),
+		),
+	)
 
-	editorContainer.Add(tintEditor) // Default to showing tint editor
+	// Add a placeholder that will be swapped
+	editorContainer.Add(container.NewVBox())
 
 	right := container.NewVBox(
 		editorContainer,
@@ -1373,37 +1586,43 @@ func main() {
 	tintTabContent := container.NewBorder(container.NewVBox(searchEntry), nil, nil, nil, tintList)
 	titleTabContent := container.NewBorder(container.NewVBox(searchEntryTitles), nil, nil, nil, titleList)
 	emissiveTabContent := container.NewBorder(container.NewVBox(searchEntryEmissives), nil, nil, nil, emissiveList)
+	fanfareTabContent := container.NewBorder(container.NewVBox(searchEntryFanfares), nil, nil, nil, fanfareList)
 
 	tabs = container.NewAppTabs(
 		container.NewTabItem("Tints", tintTabContent),
 		container.NewTabItem("Titles", titleTabContent),
 		container.NewTabItem("Emissives", emissiveTabContent),
+		container.NewTabItem("Fanfares", fanfareTabContent),
 	)
 
 	tabs.OnSelected = func(tab *container.TabItem) {
+		// Hide components that are not always visible
+		previewLabel.Hide()
+		previewContainer.Hide()
+		emissivePreviewLabel.Hide()
+		emissivePreviewWrapper.Hide()
+		btnGenThumb.Hide()
+
+		// Determine which editor to show
+		var specificEditor fyne.CanvasObject
 		switch tab.Text {
 		case "Tints":
-			editorContainer.Objects[len(editorContainer.Objects)-1] = tintEditor
+			specificEditor = tintEditor
 			previewLabel.Show()
 			previewContainer.Show()
-			emissivePreviewLabel.Hide()
-			emissivePreviewWrapper.Hide()
 			btnGenThumb.Show()
 		case "Titles":
-			editorContainer.Objects[len(editorContainer.Objects)-1] = titleEditor
-			previewLabel.Hide()
-			previewContainer.Hide()
-			emissivePreviewLabel.Hide()
-			emissivePreviewWrapper.Hide()
-			btnGenThumb.Hide()
+			specificEditor = titleEditor
 		case "Emissives":
-			editorContainer.Objects[len(editorContainer.Objects)-1] = emissiveEditor
-			previewLabel.Hide()
-			previewContainer.Hide()
+			specificEditor = emissiveEditor
 			emissivePreviewLabel.Show()
 			emissivePreviewWrapper.Show()
-			btnGenThumb.Hide()
+		case "Fanfares":
+			specificEditor = fanfareEditor
+		default:
+			specificEditor = container.NewVBox()
 		}
+		editorContainer.Objects[len(editorContainer.Objects)-1] = specificEditor
 		editorContainer.Refresh()
 	}
 
