@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,7 @@ type AppSettings struct {
 	MetadataOutPath string `json:"metadata_out_path"`
 	EchoVRDataPath  string `json:"echovr_data_path"`
 	BackupPath      string `json:"backup_path"`
+	Mode            string `json:"mode"`
 }
 
 // Global State
@@ -118,22 +120,31 @@ const (
 	// Base Directories
 	SettingsDirName = "Settings"
 	ExtractedDir    = "Settings/pcvr-extracted"
-	InputDir        = "Settings/input-pcvr"
 	OutputDir       = "Settings/output-both"
 	BackupDirName   = "Backup" // Folder name inside Settings
 
-	// 1. TINT FILE (Cosmetic List)
-	// Path: Settings/input-pcvr/0/3671295590506143214/4869319423857648486
-	TintFolder   = "0/3671295590506143214"
-	TintFileName = "4869319423857648486"
+	// PCVR Constants
+	InputDirNamePC    = "input-pcvr"
+	TintFolderPC      = "0/32f30fe361939dee"
+	TintFileNamePC    = "43934c379cf1e366"
+	ThumbTexFolderPC  = "0/beac1969cb7b8861"
+	ThumbMetaFolderPC = "0/4a4c32c49300b8a0"
 
-	// 2. THUMBNAIL TEXTURE (DDS)
-	// Path: Settings/input-pcvr/0/-4707359568332879775/[ID]
-	ThumbTexFolder = "0/-4707359568332879775"
+	// Quest Constants
+	InputDirNameQuest    = "input-quest"
+	TintFolderQuest      = "0/24cbfd54e9a7f2ea"
+	TintFileNameQuest    = "bb758e9809650e3b"
+	ThumbTexFolderQuest  = "0/489bb35d53ca50e9"
+	ThumbMetaFolderQuest = "0/e2ef0854d0cd69b8"
+)
 
-	// 3. THUMBNAIL METADATA (Hex)
-	// Path: Settings/input-pcvr/0/5353709876897953952/[ID]
-	ThumbMetaFolder = "0/5353709876897953952"
+// Dynamic Paths (Initialized to PCVR defaults)
+var (
+	InputDirName    = InputDirNamePC
+	TintFolder      = TintFolderPC
+	TintFileName    = TintFileNamePC
+	ThumbTexFolder  = ThumbTexFolderPC
+	ThumbMetaFolder = ThumbMetaFolderPC
 )
 
 // --- HELPER: Find Tool Path ---
@@ -175,6 +186,23 @@ func getSettingsDir() string {
 	return SettingsDirName // Fallback to relative
 }
 
+func updateMode(mode string) {
+	if mode == "Quest" {
+		TintFolder = TintFolderQuest
+		TintFileName = TintFileNameQuest
+		ThumbTexFolder = ThumbTexFolderQuest
+		ThumbMetaFolder = ThumbMetaFolderQuest
+		InputDirName = InputDirNameQuest
+	} else {
+		TintFolder = TintFolderPC
+		TintFileName = TintFileNamePC
+		ThumbTexFolder = ThumbTexFolderPC
+		ThumbMetaFolder = ThumbMetaFolderPC
+		InputDirName = InputDirNamePC
+	}
+	appSettings.Mode = mode
+}
+
 func main() {
 	os.Setenv("FYNE_GL_VERSION", "2.1")
 
@@ -197,6 +225,11 @@ func main() {
 	if appSettings.AssetsPath == "" || appSettings.AssetsPath == "./thumbnails" {
 		appSettings.AssetsPath = filepath.Join(settingsPath, "thumbnail")
 	}
+	if appSettings.Mode == "" {
+		appSettings.Mode = "PCVR"
+	}
+	updateMode(appSettings.Mode)
+
 	saveSettings()
 
 	defer func() {
@@ -408,28 +441,24 @@ func main() {
 		if idStr == "" {
 			return
 		}
-
-		// Paths to check for thumbnails
-		pathsToCheck := []string{}
-
-		// 1. Configured AssetsPath
+		// Check Auto-Downloaded Assets Path
 		if appSettings.AssetsPath != "" {
-			pathsToCheck = append(pathsToCheck, filepath.Join(appSettings.AssetsPath, idStr+".png"))
-		}
-
-		// 2. Settings/thumbnail (relative to settings dir)
-		settingsPath := getSettingsDir()
-		pathsToCheck = append(pathsToCheck, filepath.Join(settingsPath, "thumbnail", idStr+".png"))
-
-		// 3. thumbnail (relative to CWD)
-		pathsToCheck = append(pathsToCheck, filepath.Join("thumbnail", idStr+".png"))
-
-		for _, originalPath := range pathsToCheck {
+			// Look for png files in the folder (e.g. symbol.png)
+			// The zip usually contains images named by symbol
+			originalPath := filepath.Join(appSettings.AssetsPath, idStr+".png")
 			if _, err := os.Stat(originalPath); err == nil {
 				thumbImage.File = originalPath
 				thumbImage.Refresh()
 				return
 			}
+		}
+
+		// Fallback: Check Settings/thumbnail explicitly
+		fallbackPath := filepath.Join(settingsPath, "thumbnail", idStr+".png")
+		if _, err := os.Stat(fallbackPath); err == nil {
+			thumbImage.File = fallbackPath
+			thumbImage.Refresh()
+			return
 		}
 
 		thumbImage.File = ""
@@ -699,6 +728,11 @@ func main() {
 			return
 		}
 
+		// Convert ID to Hex if it's decimal
+		if val, err := strconv.ParseInt(idStr, 10, 64); err == nil {
+			idStr = fmt.Sprintf("%016x", uint64(val))
+		}
+
 		// 2. Load Embedded Template
 		img, _, err := image.Decode(bytes.NewReader(embeddedTemplate))
 		if err != nil {
@@ -744,9 +778,11 @@ func main() {
 				wasReplaced := false
 				if isSimilar(currColor, srcPrimary, 20.0) {
 					finalColor = color.RGBA{cSec.R, cSec.G, cSec.B, currColor.A}
+					finalColor = color.RGBA{cPrim.R, cPrim.G, cPrim.B, currColor.A}
 					wasReplaced = true
 				} else if isSimilar(currColor, srcSecondary, 20.0) {
 					finalColor = color.RGBA{cPrim.R, cPrim.G, cPrim.B, currColor.A}
+					finalColor = color.RGBA{cSec.R, cSec.G, cSec.B, currColor.A}
 					wasReplaced = true
 				}
 
@@ -779,39 +815,91 @@ func main() {
 		png.Encode(fPng, dst)
 		fPng.Close()
 
-		// 6. Find & Run texconv.exe
-		texconvPath, err := findTool("texconv.exe")
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("texconv.exe not found.\nPlease place it in:\n%s\n\nError: %v", filepath.Join(settingsPath, "texconv.exe"), err), w)
-			return
-		}
+		// 6. Find & Run Tool (Branch based on Mode)
+		var generatedFile string
 
-		// Command: texconv.exe -f BC7_UNORM_SRGB -y -o [TempDir] [PngPath]
-		cmd := exec.Command(texconvPath, "-f", "BC7_UNORM_SRGB", "-y", "-o", tempDir, tempPngPath)
-		// Hide Window
-		// cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} // Uncomment for windows specific hiding
+		if appSettings.Mode == "Quest" {
+			// QUEST: Use astcenc-avx2.exe
+			astcPath, err := findTool("astcenc-avx2.exe")
+			if err != nil {
+				dialog.ShowError(fmt.Errorf("astcenc-avx2.exe not found.\nPlease place it in:\n%s\n\nError: %v", filepath.Join(settingsPath, "astcenc-avx2.exe"), err), w)
+				return
+			}
 
-		if out, err := cmd.CombinedOutput(); err != nil {
-			dialog.ShowError(fmt.Errorf("texconv failed:\n%s", out), w)
-			return
+			tempAstcPath := filepath.Join(tempDir, "temp_thumb.astc")
+			// Command: astcenc-avx2.exe -cs [PngPath] [AstcPath] 6x6 -medium
+			cmd := exec.Command(astcPath, "-cs", tempPngPath, tempAstcPath, "6x6", "-medium")
+
+			if out, err := cmd.CombinedOutput(); err != nil {
+				dialog.ShowError(fmt.Errorf("astcenc failed:\n%s", out), w)
+				return
+			}
+
+			// Read generated ASTC file
+			astcData, err := os.ReadFile(tempAstcPath)
+			if err != nil {
+				dialog.ShowError(fmt.Errorf("failed to read generated astc: %v", err), w)
+				return
+			}
+
+			// Validate Standard ASTC Header (Magic: 13 AB A1 5C)
+			if len(astcData) < 16 || astcData[0] != 0x13 || astcData[1] != 0xAB || astcData[2] != 0xA1 || astcData[3] != 0x5C {
+				dialog.ShowError(fmt.Errorf("generated file is not valid ASTC (wrong magic bytes)"), w)
+				return
+			}
+			rawData := astcData[16:]
+
+			// Construct Custom Quest Header (16 bytes)
+			header := make([]byte, 16)
+			header[0] = 0x53 // Magic
+			header[1] = 0x80
+			header[2] = 0x09 // Version
+			header[3] = 0x00
+			binary.LittleEndian.PutUint16(header[4:], 6)                    // Block Width (6)
+			binary.LittleEndian.PutUint16(header[6:], 6)                    // Block Height (6)
+			binary.LittleEndian.PutUint16(header[8:], uint16(bounds.Dx()))  // Image Width
+			binary.LittleEndian.PutUint16(header[10:], uint16(bounds.Dy())) // Image Height
+			// Bytes 12-15 are padding (0)
+
+			finalData := append(header, rawData...)
+
+			generatedFile = filepath.Join(tempDir, "temp_thumb_stripped.bin")
+			if err := os.WriteFile(generatedFile, finalData, 0644); err != nil {
+				dialog.ShowError(fmt.Errorf("failed to write stripped astc: %v", err), w)
+				return
+			}
+			os.Remove(tempAstcPath)
+		} else {
+			// PCVR: Use texconv.exe
+			texconvPath, err := findTool("texconv.exe")
+			if err != nil {
+				dialog.ShowError(fmt.Errorf("texconv.exe not found.\nPlease place it in:\n%s\n\nError: %v", filepath.Join(settingsPath, "texconv.exe"), err), w)
+				return
+			}
+			// Command: texconv.exe -f BC7_UNORM_SRGB -y -o [TempDir] [PngPath]
+			cmd := exec.Command(texconvPath, "-f", "BC7_UNORM_SRGB", "-y", "-o", tempDir, tempPngPath)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				dialog.ShowError(fmt.Errorf("texconv failed:\n%s", out), w)
+				return
+			}
+			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
 		}
 
 		// 7. Move DDS to Final Destination
 		// Path: Settings/input-pcvr/0/-4707359568332879775/[ID]
 		// Note: InputDir is relative, lets resolve it absolutely
-		absInputDir := filepath.Join(settingsPath, "input-pcvr")
+		absInputDir := filepath.Join(settingsPath, InputDirName)
 		texDir := filepath.Join(absInputDir, ThumbTexFolder)
 		if err := os.MkdirAll(texDir, 0755); err != nil {
 			dialog.ShowError(fmt.Errorf("failed to create tex dir: %v", err), w)
 			return
 		}
 
-		generatedDDS := filepath.Join(tempDir, "temp_thumb.dds")
 		outDdsPath := filepath.Join(texDir, idStr) // Saves as filename [ID] with no extension
 
 		os.Remove(outDdsPath)
-		if err := os.Rename(generatedDDS, outDdsPath); err != nil {
-			input, _ := os.ReadFile(generatedDDS)
+		if err := os.Rename(generatedFile, outDdsPath); err != nil {
+			input, _ := os.ReadFile(generatedFile)
 			os.WriteFile(outDdsPath, input, 0644)
 		}
 
@@ -831,9 +919,9 @@ func main() {
 
 		// Cleanup
 		os.Remove(tempPngPath)
-		os.Remove(generatedDDS)
+		os.Remove(generatedFile)
 
-		dialog.ShowInformation("Success", "Thumbnail generated (BC7).\nID: "+idStr, w)
+		dialog.ShowInformation("Success", "Thumbnail generated.\nID: "+idStr, w)
 		statusLabel.SetText("Generated: " + idStr)
 	}
 
@@ -896,7 +984,6 @@ func main() {
 			"-data", echoPath,
 			"-output", extractDir,
 			"-export", "tints",
-			"-decimal-names",
 			"-force",
 		)
 		out, err := cmd.CombinedOutput()
@@ -910,7 +997,7 @@ func main() {
 	executeRepackTool := func(echoPath string) (string, error) {
 		// 1. Prepare Paths
 		settingsPath := getSettingsDir()
-		absInputDir := filepath.Join(settingsPath, "input-pcvr")
+		absInputDir := filepath.Join(settingsPath, InputDirName)
 		absOutputDir := filepath.Join(settingsPath, "output-both")
 
 		// 2. Prepare Input File for Tints
@@ -937,12 +1024,11 @@ func main() {
 		}
 
 		cmd := exec.Command(toolPath,
-			"-mode", "replace",
-			"-output", absOutputDir,
+			"-mode", "build",
 			"-package", PackageName,
 			"-data", echoPath,
 			"-input", absInputDir,
-			"-ignoreOutputRestrictions",
+			"-output", absOutputDir,
 			"-force",
 		)
 		out, err := cmd.CombinedOutput()
@@ -985,12 +1071,8 @@ func main() {
 		// Check if extracted exists
 		settingsPath := getSettingsDir()
 		extractDir := filepath.Join(settingsPath, "pcvr-extracted")
-
-		// Check for specific tint folder (decimal symbol)
-		// Check both root (flat extract) and chunk 0 (preserve-groups extract)
-		_, errFlat := os.Stat(filepath.Join(extractDir, "3671295590506143214"))
-		_, errGroup := os.Stat(filepath.Join(extractDir, "0", "3671295590506143214"))
-		extractedExists := errFlat == nil || errGroup == nil
+		_, errExtract := os.Stat(extractDir)
+		extractedExists := errExtract == nil
 
 		// UI Elements
 		lblPath := widget.NewLabel(appSettings.EchoVRDataPath)
@@ -1510,6 +1592,24 @@ func main() {
 	btnSettings := widget.NewButton("Settings", showSettings)
 	btnLoadFile := widget.NewButton("Load File", loadExternalFile)
 
+	var btnChooseMode *widget.Button
+	btnChooseMode = widget.NewButton("Choose Mode (Current: "+appSettings.Mode+")", func() {
+		dialog.ShowCustom("Select Mode", "Cancel", container.NewVBox(
+			widget.NewButton("PCVR", func() {
+				updateMode("PCVR")
+				btnChooseMode.SetText("Choose Mode (Current: PCVR)")
+				saveSettings()
+				w.Content().Refresh()
+			}),
+			widget.NewButton("Quest", func() {
+				updateMode("Quest")
+				btnChooseMode.SetText("Choose Mode (Current: Quest)")
+				saveSettings()
+				w.Content().Refresh()
+			}),
+		), w)
+	})
+
 	saveBtn := widget.NewButton("SAVE DATA FILE (Cosmetics)", func() {
 		b, err := cosmeticListToBytes(currentCList)
 		if err != nil {
@@ -1519,7 +1619,7 @@ func main() {
 
 		// Ensure directories exist
 		settingsPath := getSettingsDir()
-		absInputDir := filepath.Join(settingsPath, "input-pcvr")
+		absInputDir := filepath.Join(settingsPath, InputDirName)
 		tintDir := filepath.Join(absInputDir, TintFolder)
 		if err := os.MkdirAll(tintDir, 0755); err != nil {
 			dialog.ShowError(err, w)
@@ -1629,7 +1729,7 @@ func main() {
 	// --- Final Layout ---
 	topRow := container.NewVBox(
 		container.NewGridWithColumns(1, btnRepack),
-		container.NewGridWithColumns(2, btnSettings, btnLoadFile),
+		container.NewGridWithColumns(3, btnSettings, btnLoadFile, btnChooseMode),
 	)
 
 	left := container.NewBorder(topRow, nil, nil, nil, tabs)
@@ -1651,6 +1751,47 @@ func main() {
 	}()
 
 	w.ShowAndRun()
+}
+
+// --- THUMBNAIL RENAMING LOGIC ---
+func toUint64Hex(name string) (string, bool) {
+	// Handle 0x prefix removal
+	if len(name) > 2 && strings.ToLower(name[:2]) == "0x" {
+		return name[2:], true
+	}
+	// Try parsing as decimal int64
+	if val, err := strconv.ParseInt(name, 10, 64); err == nil {
+		// Convert to uint64 hex (handles two's complement for negatives)
+		return fmt.Sprintf("%016x", uint64(val)), true
+	}
+	return "", false
+}
+
+func renameThumbnails(root string) {
+	var paths []string
+	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err == nil && path != root {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+
+	// Sort by length descending to rename children before parents (bottom-up)
+	sort.Slice(paths, func(i, j int) bool {
+		return len(paths[i]) > len(paths[j])
+	})
+
+	for _, path := range paths {
+		dir := filepath.Dir(path)
+		base := filepath.Base(path)
+		ext := filepath.Ext(base)
+		nameNoExt := strings.TrimSuffix(base, ext)
+
+		if hexName, ok := toUint64Hex(nameNoExt); ok {
+			newPath := filepath.Join(dir, hexName+ext)
+			os.Rename(path, newPath)
+		}
+	}
 }
 
 // --- THUMBNAIL DOWNLOADER ---
@@ -1770,6 +1911,10 @@ func downloadAndExtractThumbnails() {
 	}
 
 	os.Remove(zipName)
+
+	// Run renaming logic on extracted thumbnails
+	renameThumbnails(targetDir)
+
 	fmt.Println("Thumbnails downloaded and extracted.")
 }
 
@@ -1784,23 +1929,45 @@ func writeMetadata(filename string) error {
 	padding := bytes.Repeat([]byte{0xFF}, 192)
 	f.Write(padding)
 
-	tail := []byte{
-		0x01, 0x00, 0x00, 0x00,
-		0x80, 0x00, 0x00, 0x00,
-		0x80, 0x00, 0x00, 0x00,
-		0x01, 0x00, 0x00, 0x00,
-		0x01, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x63, 0x00, 0x00, 0x00,
-		0x01, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		0x80, 0x00, 0x00, 0x00,
-		0x80, 0x00, 0x00, 0x00,
-		0x01, 0x00, 0x00, 0x00,
-		0x04, 0x56, 0x00, 0x00,
-		0x00, 0x40, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
+	var tail []byte
+	if appSettings.Mode == "Quest" {
+		tail = []byte{
+			0x01, 0x00, 0x00, 0x00,
+			0x80, 0x00, 0x00, 0x00,
+			0x80, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+			0x63, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+			0x80, 0x00, 0x00, 0x00,
+			0x80, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00,
+			0x40, 0x1E, 0x00, 0x00,
+			0x00, 0x40, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+		}
+	} else {
+		tail = []byte{
+			0x01, 0x00, 0x00, 0x00,
+			0x80, 0x00, 0x00, 0x00,
+			0x80, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+			0x63, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+			0x80, 0x00, 0x00, 0x00,
+			0x80, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00,
+			0x04, 0x56, 0x00, 0x00,
+			0x00, 0x40, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+		}
 	}
 
 	f.Write(tail)
