@@ -103,7 +103,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = true
 	state.NameEntry.SetText(t.DisplayName)
 	state.DescEntry.SetText(t.Description)
-	state.RaritySelect.SetSelected(data.RaritySymbolToName[t.Rarity])
+	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
 	
 	if state.ThumbIdItem != nil {
 		state.ThumbIdItem.Widget.Show()

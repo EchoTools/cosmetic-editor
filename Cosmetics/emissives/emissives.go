@@ -137,7 +137,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.NameEntry.SetText(t.DisplayName)
 	state.DescEntry.SetText(t.Description)
 	state.ThumbIdEntry.SetText(data.SymbolToHex(t.ThumbnailSymbol))
-	state.RaritySelect.SetSelected(data.RaritySymbolToName[t.Rarity])
+	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
 
 	state.CurrentAssetSymbol = data.SymbolToHex(t.TextureSymbol)

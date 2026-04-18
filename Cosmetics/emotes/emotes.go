@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"evrCosmeticResearch/Data"
+	data "evrCosmeticResearch/Data"
 	"fmt"
 	"image"
 	"image/gif"
@@ -184,6 +184,9 @@ func startGifPreview(frames []image.Image) {
 }
 
 func LoadToEditor(state *data.AppState, realIdx int) {
+	if realIdx < 0 || realIdx >= len(state.CosmeticList.CosmeticEntries) {
+		return
+	}
 	state.SelectedIndex = realIdx
 	state.SelectedCategory = "Emotes"
 
@@ -196,7 +199,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.NameEntry.SetText(t.DisplayName)
 	state.DescEntry.SetText(t.Description)
 	state.ThumbIdEntry.SetText(data.SymbolToHex(t.ThumbnailSymbol))
-	state.RaritySelect.SetSelected(data.RaritySymbolToName[t.Rarity])
+	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
 	state.UpdateMainTexture(0)
 
@@ -247,7 +250,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 					if _, err := os.Stat(minimalPath); err == nil {
 						path = minimalPath
 					} else {
-						if frameIdx % len(t.EmoteFrames) == 0 {
+						if frameIdx%len(t.EmoteFrames) == 0 {
 							fmt.Printf("[Emote] Preview failed to find frame 0. Tried:\n  - %s\n  - %s\n", path, minimalPath)
 						}
 					}
@@ -311,11 +314,13 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 
 			gifFrameLabel.SetText(fmt.Sprintf("GIF Frames: %d", len(g.Image)))
 
+			// Verbatim legacy auto-resize logic
 			newCount := len(g.Image)
 			oldCount := len(currentEmoteFrames)
 			if newCount != oldCount {
 				if newCount > oldCount {
 					for i := oldCount; i < newCount; i++ {
+						// Deterministic ID based on emote name and frame index
 						newSymbol := data.ToSymbol(currentEmoteInternalName + "_frame_" + strconv.Itoa(i))
 						currentEmoteFrames = append(currentEmoteFrames, data.SymbolToHex(int64(newSymbol)))
 					}
@@ -326,6 +331,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			}
 
 			replaceGifBtn.Enable()
+
 			var frames []image.Image
 			for _, img := range g.Image {
 				frames = append(frames, img)
@@ -344,12 +350,15 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 		go func() {
 			defer fyne.Do(func() { replaceGifBtn.Enable() })
 
+			// legacy logic
 			f, _ := os.Open(selectedGifPath)
 			g, _ := gif.DecodeAll(f)
 			f.Close()
 
 			settingsPath := data.GetSettingsDir()
 			tempDir := filepath.Join(settingsPath, "Temp")
+			os.MkdirAll(tempDir, 0755)
+
 			texconvPath, err := data.FindTool(settingsPath, "texconv.exe")
 			if err != nil {
 				fyne.Do(func() { dialog.ShowError(err, state.Window) })
@@ -362,128 +371,118 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			}
 
 			processedCount := 0
-			templatePath := ""
+			var missingAssets []string
 
-			// 1. Resolve template from original frames if possible
-			// We need the original symbols to find the template
-			tOrig := CEmote{}
-			tOrig.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[state.SelectedIndex])
-			for _, fSym := range tOrig.EmoteFrames {
-				sym := data.HexToSymbol(fSym)
-				templatePath = data.FindExtractedAsset(extPath, sym, data.ThumbMetaFolderPC)
-				if templatePath == "" {
-					templatePath = data.FindExtractedAsset(extPath, sym, data.TexMetaFolderPC)
-				}
-				if templatePath != "" {
-					fmt.Printf("[Emote] Found template using original frame %s: %s\n", fSym, templatePath)
+			// Verbatim legacy loop
+			for i, img := range g.Image {
+				if i >= len(currentEmoteFrames) {
 					break
 				}
-			}
-
-			if templatePath == "" {
-				fmt.Printf("[Emote] WARNING: No template found in original frames. Search will continue per frame.\n")
-			}
-
-			for i, img := range g.Image {
 				idStr := currentEmoteFrames[i]
-				symVal := data.HexToSymbol(idStr)
-				
-				fmt.Printf("Processing frame %d/%d (ID: %s)...\n", i+1, len(g.Image), idStr)
 
-				// Use robust lookup to find source metadata
-				srcFile := data.FindExtractedAsset(extPath, symVal, data.ThumbMetaFolderPC)
-				if srcFile == "" {
-					srcFile = data.FindExtractedAsset(extPath, symVal, data.TexMetaFolderPC)
-				}
-
-				if srcFile == "" {
-					// Fallback to template (first frame)
-					if templatePath != "" {
-						srcFile = templatePath
+				// legacy path resolution
+				srcFile := filepath.Join(extPath, "4a4c32c49300b8a0", idStr)
+				if _, err := os.Stat(srcFile); os.IsNotExist(err) {
+					altPath := filepath.Join(extPath, idStr)
+					if _, err := os.Stat(altPath); err == nil {
+						srcFile = altPath
 					} else {
-						fmt.Printf("Skipping frame %d: No metadata source found for %s\n", i, idStr)
-						continue
+						// template fallback from index 0
+						id0Str := currentEmoteFrames[0]
+						srcFile = filepath.Join(extPath, "4a4c32c49300b8a0", id0Str)
+						if _, err := os.Stat(srcFile); os.IsNotExist(err) {
+							srcFile = filepath.Join(extPath, id0Str)
+						}
 					}
 				}
 
-				// Header and Resizing
-				header := make([]byte, 400)
-				fSrc, err := os.Open(srcFile)
-				if err != nil {
-					fmt.Printf("[Emote] ERROR: Could not open source %s: %v\n", srcFile, err)
+				if _, err := os.Stat(srcFile); os.IsNotExist(err) {
+					missingAssets = append(missingAssets, idStr)
 					continue
 				}
+
+				// Verbatim legacy header-patching logic
+				header := make([]byte, 400)
+				fSrc, _ := os.Open(srcFile)
 				n, _ := fSrc.Read(header)
 				fSrc.Close()
 				if n < 400 {
-					fmt.Printf("[Emote] ERROR: Source %s too small (%d bytes)\n", srcFile, n)
+					missingAssets = append(missingAssets, idStr+" (small)")
 					continue
 				}
 
-				origH := binary.LittleEndian.Uint32(header[268:272])
-				origW := binary.LittleEndian.Uint32(header[272:276])
-				fmt.Printf("[Emote] Frame %d: Original Dimensions %dx%d\n", i, origW, origH)
+				origHeight := binary.LittleEndian.Uint32(header[268:])
+				origWidth := binary.LittleEndian.Uint32(header[272:])
+				resizedImg := resize.Resize(uint(origWidth), uint(origHeight), img, resize.Lanczos3)
 
-				resized := resize.Resize(uint(origW), uint(origH), img, resize.Lanczos3)
-
-				pngPath := filepath.Join(tempDir, fmt.Sprintf("frame_%d.png", i))
-				fPng, _ := os.Create(pngPath)
-				png.Encode(fPng, resized)
-				fPng.Close()
+				pngPath := filepath.Join(tempDir, fmt.Sprintf("frame_%d_resized.png", i))
+				pngOut, _ := os.Create(pngPath)
+				png.Encode(pngOut, resizedImg)
+				pngOut.Close()
 
 				ddsPath := filepath.Join(tempDir, fmt.Sprintf("frame_%d.dds", i))
 				cmd := exec.Command(texconvPath, "encode", pngPath, ddsPath)
 				cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-				if out, err := cmd.CombinedOutput(); err != nil {
-					fmt.Printf("[Emote] ERROR: texconv failed on frame %d: %v\n%s\n", i, err, string(out))
-					continue
-				}
+				cmd.CombinedOutput()
 
 				ddsData, _ := os.ReadFile(ddsPath)
 				ddsSize := uint32(len(ddsData))
-				fmt.Printf("[Emote] Frame %d: Encoded DDS Size %d bytes\n", i, ddsSize)
 
-				// Combine Header + DDS
-				metaData, _ := os.ReadFile(srcFile)
+				origMeta, _ := os.ReadFile(srcFile)
 				headerOnly := make([]byte, 256)
-				copy(headerOnly, metaData[:256])
+				copy(headerOnly, origMeta[:256])
 				binary.LittleEndian.PutUint64(headerOnly[64:72], uint64(data.HexToSymbol(idStr)))
 				binary.LittleEndian.PutUint32(headerOnly[244:248], ddsSize)
-				combined := append(headerOnly, ddsData...)
+				combinedAsset := append(headerOnly, ddsData...)
 
-				metaOutDir := filepath.Join(settingsPath, data.InputDirNamePC, data.ThumbMetaFolderPC)
-				texOutDir := filepath.Join(settingsPath, data.InputDirNamePC, data.ThumbTexFolderPC)
+				// direct filesystem writes
+				inputDirName := data.InputDirNamePC
+				if state.Settings.Mode == "Quest" {
+					inputDirName = data.InputDirNameQuest
+				}
+				absInputDir := filepath.Join(settingsPath, inputDirName)
+				metaOutDir := filepath.Join(absInputDir, "4a4c32c49300b8a0")
+				texOutDir := filepath.Join(absInputDir, "beac1969cb7b8861")
 				os.MkdirAll(metaOutDir, 0755)
 				os.MkdirAll(texOutDir, 0755)
 
-				metaPath := filepath.Join(metaOutDir, idStr)
-				texPath := filepath.Join(texOutDir, idStr)
-
-				absMeta, _ := filepath.Abs(metaPath)
-
-				if err := os.WriteFile(metaPath, combined, 0644); err != nil {
-					fmt.Printf("[Emote] ERROR: Could not write meta for frame %d: %v\n", i, err)
-					continue
-				}
-				if err := os.WriteFile(texPath, make([]byte, 16), 0644); err != nil {
-					fmt.Printf("[Emote] ERROR: Could not write tex stub for frame %d: %v\n", i, err)
-					continue
-				}
+				os.WriteFile(filepath.Join(metaOutDir, idStr), combinedAsset, 0644)
+				os.WriteFile(filepath.Join(texOutDir, idStr), make([]byte, 16), 0644)
 
 				processedCount++
-				fmt.Printf("[Emote] Saved frame %d to: %s\n", i, absMeta)
+
 				os.Remove(pngPath)
 				os.Remove(ddsPath)
 			}
 
 			fyne.Do(func() {
 				if processedCount > 0 {
-					saveEmote()
-					state.HandleSave(filepath.Join(tempDir, "temp_autosave.dat"))
-					dialog.ShowInformation("Success", fmt.Sprintf("Repacked %d frames.", processedCount), state.Window)
-					state.StatusLabel.SetText(fmt.Sprintf("GIF Replaced: %d frames", processedCount))
+					// Verbatim commit to list
+					realIdx := state.SelectedIndex
+					t := CEmote{}
+					if err := t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx]); err == nil {
+						t.EmoteFrames = currentEmoteFrames
+						if newEntry, err := t.ToCosmeticEntry(); err == nil {
+							state.CosmeticList.CosmeticEntries[realIdx] = newEntry
+						}
+					}
+
+					// Auto-save to database path to ensure persistence
+					inputDir := data.InputDirNamePC
+					tintFolder := data.TintFolderPC
+					tintFile := data.TintFileNamePC
+					if state.Settings.Mode == "Quest" {
+						inputDir = data.InputDirNameQuest
+						tintFolder = data.TintFolderQuest
+						tintFile = data.TintFileNameQuest
+					}
+					dbPath := filepath.Join(data.GetSettingsDir(), inputDir, tintFolder, tintFile)
+					state.HandleSave(dbPath)
+
+					state.StatusLabel.SetText(fmt.Sprintf("GIF Replaced: %d/%d processed", processedCount, len(g.Image)))
+					dialog.ShowInformation("Success", "GIF repacked successfully.", state.Window)
 				} else {
-					dialog.ShowError(errors.New("No frames processed. Check extracted assets."), state.Window)
+					dialog.ShowError(errors.New("Failed to process frames."), state.Window)
 				}
 			})
 		}()

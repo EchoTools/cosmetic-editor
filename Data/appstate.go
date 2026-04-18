@@ -192,14 +192,40 @@ type AppSettings struct {
 	BackupPath      string `json:"backup_path"`
 }
 
-var RaritySymbolToName = map[int64]string{
-	0x3cf7320f92500000: "Default",
-	0x34cc320f92500000: "Common",
-	0x34cd320f92500000: "Uncommon",
-	0x34ce320f92500000: "Rare",
-	0x34cf320f92500000: "Epic",
-	0x34d0320f92500000: "Legendary",
-	0x34d1320f92500000: "Exotic",
+var RaritySymbolToName = map[uint64]string{
+	0x2fd38a995f615b9e: "Default",
+	0x41d2c432172e0810: "Common",
+	0xc8c33e483c7a10b5: "Fine",
+	0x41d2d4280a26151c: "Superb",
+	0xc8c33e483f6317b3: "Epic",
+	0x3a5ec345159d921d: "Legendary",
+	0x41d2ca240e2b0e1d: "Mythic",
+}
+
+var RarityNameToSymbol = map[string]uint64{
+	"Default":   0x2fd38a995f615b9e,
+	"Common":    0x41d2c432172e0810,
+	"Fine":      0xc8c33e483c7a10b5,
+	"Superb":    0x41d2d4280a26151c,
+	"Epic":      0xc8c33e483f6317b3,
+	"Legendary": 0x3a5ec345159d921d,
+	"Mythic":    0x41d2ca240e2b0e1d,
+}
+
+// GetRarityName safely converts a rarity symbol to its display name.
+func (s *AppState) GetRarityName(symbol int64) string {
+	if name, ok := RaritySymbolToName[uint64(symbol)]; ok {
+		return name
+	}
+	return "Default"
+}
+
+// GetRaritySymbol safely converts a rarity display name to its symbol.
+func (s *AppState) GetRaritySymbol(name string) int64 {
+	if symbol, ok := RarityNameToSymbol[name]; ok {
+		return int64(symbol)
+	}
+	return int64(0x2fd38a995f615b9e) // Fallback to Default
 }
 
 // RefreshIndices categorizes all cosmetic entries into their respective lists.

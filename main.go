@@ -47,7 +47,7 @@ const (
 	SettingsDirName = "settings"
 )
 
-var rarityOptions = []string{"Default", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Exotic"}
+var rarityOptions = []string{"Default", "Common", "Fine", "Superb", "Epic", "Legendary", "Mythic"}
 
 // Global App State
 var state *data.AppState
@@ -108,7 +108,12 @@ func main() {
 	state.NameEntry = widget.NewEntry()
 	state.DescEntry = widget.NewEntry()
 	state.ThumbIdEntry = widget.NewEntry()
-	state.RaritySelect = widget.NewSelect(rarityOptions, nil)
+	state.RaritySelect = widget.NewSelect(rarityOptions, func(s string) {
+		if state.SelectedIndex == -1 || state.IsLoadingEntry { return }
+		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
+		entry.CEntry.RaritySymbol = state.GetRaritySymbol(s)
+	})
+	state.RaritySelect.PlaceHolder = "Select Rarity" // Optional: gives a better default than "Select One"
 
 	state.ThumbImage = canvas.NewImageFromResource(nil)
 	state.ThumbImage.FillMode = canvas.ImageFillContain
@@ -384,9 +389,26 @@ func main() {
 	state.PreviewTintContainer.Hide()
 
 	btnSave := widget.NewButtonWithIcon("SAVE DATA FILE", theme.DocumentSaveIcon(), func() {
-		if err := state.HandleSave(tempFilePath); err == nil {
-			dialog.ShowInformation("Success", "File saved correctly.", w)
-		} else { dialog.ShowError(err, w) }
+		inputDir := data.InputDirNamePC
+		tintFolder := data.TintFolderPC
+		tintFile := data.TintFileNamePC
+		if state.Settings.Mode == "Quest" {
+			inputDir = data.InputDirNameQuest
+			tintFolder = data.TintFolderQuest
+			tintFile = data.TintFileNameQuest
+		}
+
+		dbDir := filepath.Join(data.GetSettingsDir(), inputDir, tintFolder)
+		os.MkdirAll(dbDir, 0755)
+		dbPath := filepath.Join(dbDir, tintFile)
+
+		if err := state.HandleSave(dbPath); err == nil {
+			dialog.ShowInformation("Success", "File saved correctly to:\n"+dbPath, w)
+			// Still save to temp for safety
+			state.HandleSave(tempFilePath)
+		} else {
+			dialog.ShowError(err, w)
+		}
 	})
 	btnSave.Importance = widget.HighImportance
 
@@ -403,8 +425,30 @@ func main() {
 	// Initial Load logic
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		b, err := os.ReadFile(tempFilePath)
-		if err != nil { b = embeddedOriginal }
+		
+		// Priority: 1. Input Database, 2. Autosave, 3. Embedded Original
+		var b []byte
+		inputDir := data.InputDirNamePC
+		tintFolder := data.TintFolderPC
+		tintFile := data.TintFileNamePC
+		if state.Settings.Mode == "Quest" {
+			inputDir = data.InputDirNameQuest
+			tintFolder = data.TintFolderQuest
+			tintFile = data.TintFileNameQuest
+		}
+		
+		dbPath := filepath.Join(data.GetSettingsDir(), inputDir, tintFolder, tintFile)
+		if data, err := os.ReadFile(dbPath); err == nil {
+			b = data
+			state.StatusLabel.SetText("Loaded from input database.")
+		} else if data, err := os.ReadFile(tempFilePath); err == nil {
+			b = data
+			state.StatusLabel.SetText("Resumed from autosave.")
+		} else {
+			b = embeddedOriginal
+			state.StatusLabel.SetText("Loaded default database.")
+		}
+		
 		cList, _ := data.BytesToCosmeticList(b)
 		state.CosmeticList = cList
 		state.RefreshIndices()

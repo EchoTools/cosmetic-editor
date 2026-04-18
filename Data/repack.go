@@ -103,6 +103,17 @@ func ExecuteRepackTool(state *AppState, echoDataPath string) (string, error) {
 		return "", fmt.Errorf("failed to write data file: %v", err)
 	}
 
+	// 1. Specialized Backup logic: Backup original manifest BEFORE tool runs
+	manifestPath := filepath.Join(echoDataPath, "manifests", PackageName)
+	bakPath := manifestPath + ".bak"
+	if _, err := os.Stat(bakPath); os.IsNotExist(err) {
+		// Only create if it doesn't exist to preserve original state
+		if data, err := os.ReadFile(manifestPath); err == nil {
+			os.WriteFile(bakPath, data, 0644)
+			fmt.Printf("[Backup] Created manifest backup: %s\n", bakPath)
+		}
+	}
+
 	// Run evrFileTools
 	os.MkdirAll(absOutputDir, 0755)
 	toolPath, err := FindTool(settingsPath, "evrFileTools.exe")
@@ -139,7 +150,8 @@ func ShowRepackDialog(state *AppState) {
 	_, errExtract := os.Stat(extractDir)
 	extractedExists := errExtract == nil
 
-	refreshUI := func() {
+	var refreshUI func()
+	refreshUI = func() {
 		content.Objects = nil
 
 		if !extractedExists {
@@ -163,48 +175,45 @@ func ShowRepackDialog(state *AppState) {
 		} else {
 			content.Add(widget.NewLabelWithStyle("Step 2: Modify & Repack", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}))
 			
-			// Backup Section
-			backupDir := filepath.Join(settingsPath, BackupDirName)
-			_, errBackup := os.Stat(backupDir)
-			backupExists := errBackup == nil
+			// Revert Section
+			manifestPath := filepath.Join(state.Settings.EchoVRDataPath, "manifests", PackageName)
+			bakPath := manifestPath + ".bak"
+			_, errBak := os.Stat(bakPath)
+			bakExists := errBak == nil
 
-			backupUI := container.NewVBox()
-			if backupExists {
-				backupUI.Add(widget.NewLabel("Backup found."))
+			revertUI := container.NewVBox()
+			if bakExists {
+				revertUI.Add(widget.NewLabel("Backup manifest found."))
 				btnRevert := widget.NewButton("Revert to Backup", func() {
-					loading := dialog.NewCustom("Restoring Backup...", "Cancel", widget.NewProgressBarInfinite(), w)
+					loading := dialog.NewCustom("Reverting...", "Cancel", widget.NewProgressBarInfinite(), w)
 					loading.Show()
 					go func() {
-						err := CopyRecursive(backupDir, state.Settings.EchoVRDataPath)
-						loading.Hide()
+						defer loading.Hide()
+						
+						// 1. Delete current manifest
+						os.Remove(manifestPath)
+						// 2. Rename .bak to original
+						err := os.Rename(bakPath, manifestPath)
 						if err != nil {
-							dialog.ShowError(err, w)
-						} else {
-							dialog.ShowInformation("Success", "Game files reverted to backup.", w)
+							fyne.Do(func() { dialog.ShowError(err, w) })
+							return
 						}
+						// 3. Delete _3 package chunk
+						chunk3 := filepath.Join(state.Settings.EchoVRDataPath, "packages", PackageName+"_3")
+						os.Remove(chunk3)
+
+						fyne.Do(func() {
+							dialog.ShowInformation("Success", "Manifest restored and modified package chunks removed.", w)
+							refreshUI()
+						})
 					}()
 				})
 				btnRevert.Importance = widget.WarningImportance
-				backupUI.Add(btnRevert)
+				revertUI.Add(btnRevert)
 			} else {
-				backupUI.Add(widget.NewLabel("No backup found."))
-				backupUI.Add(widget.NewButton("Create Backup", func() {
-					loading := dialog.NewCustom("Backing up...", "Cancel", widget.NewProgressBarInfinite(), w)
-					loading.Show()
-					go func() {
-						os.MkdirAll(backupDir, 0755)
-						err := CopyRecursive(state.Settings.EchoVRDataPath, backupDir)
-						loading.Hide()
-						if err != nil {
-							dialog.ShowError(err, w)
-						} else {
-							dialog.ShowInformation("Backup", "Backup created successfully.", w)
-							ShowRepackDialog(state)
-						}
-					}()
-				}))
+				revertUI.Add(widget.NewLabel("No manifest backup found yet.\n(Backup is created automatically during repack)"))
 			}
-			content.Add(widget.NewCard("Backup Management", "", backupUI))
+			content.Add(widget.NewCard("Revert Management", "", revertUI))
 			content.Add(widget.NewSeparator())
 			
 			content.Add(widget.NewLabel("Ready to Repack changes into game."))

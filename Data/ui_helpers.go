@@ -305,10 +305,10 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 	}
 
 	// Not in cache, search in extracted AND input folders
-	sourceFolders := []string{ThumbTexFolderPC, TexTexFolderPC}
+	sourceFolders := []string{ThumbTexFolderPC, ThumbMetaFolderPC, TexTexFolderPC, TexMetaFolderPC}
 	inputBase := filepath.Join(settingsPath, InputDirNamePC)
 	if state.Settings.Mode == "Quest" {
-		sourceFolders = append([]string{ThumbTexFolderQuest, TexTexFolderQuest}, sourceFolders...)
+		sourceFolders = append([]string{ThumbTexFolderQuest, ThumbMetaFolderQuest, TexTexFolderQuest, TexMetaFolderQuest}, sourceFolders...)
 		inputBase = filepath.Join(settingsPath, InputDirNameQuest)
 	}
 
