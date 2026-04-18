@@ -1,6 +1,6 @@
 # EchoVR Cosmetics Editor
 
-An all-in-one editor for modifying EchoVR cosmetic assets.
+Echo VR cosmetic editor GUI written in go, based on [Goopsie](https://github.com/goopsie)'s EVR cosmetic RE work.
 
 ## 🚀 Core Features
 
