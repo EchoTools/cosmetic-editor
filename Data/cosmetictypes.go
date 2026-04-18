@@ -633,7 +633,6 @@ func (c *CTint) ToCosmeticEntry() (CosmeticEntry, error) {
 	copy(foo.CEntry.DescriptionString[:], []byte(c.Description))
 
 	foo.CEntry.RaritySymbol = HexToSymbol(c.Rarity)
-
 	foo.CEntry.ThumbnailSymbol = HexToSymbol(c.ThumbnailSymbol)
 
 	buf := make([]byte, 24)
@@ -645,9 +644,9 @@ func (c *CTint) ToCosmeticEntry() (CosmeticEntry, error) {
 	binary.LittleEndian.PutUint32(buf[20:], math.Float32bits(c.SecondaryColor_B))
 	foo.CEntryExtData = buf
 
-	foo.CEntry.OtherEntrySize = int64(len(foo.CEntryExtData)) // always 72 for tints(?)
-	foo.CEntry.ExtDataParamCount = 2                          // always 2 for tints
-	foo.CEntry.ExtDataParamCount2 = 2                         // always 2 for tints
+	foo.CEntry.OtherEntrySize = int64(len(foo.CEntryExtData))
+	foo.CEntry.ExtDataParamCount = 2
+	foo.CEntry.ExtDataParamCount2 = 2
 
 	return foo, nil
 }
@@ -659,11 +658,11 @@ func (c *CTint) FromCosmeticEntry(d CosmeticEntry) error {
 	c.Rarity = SymbolToHex(d.CEntry.RaritySymbol)
 	c.ThumbnailSymbol = SymbolToHex(d.CEntry.ThumbnailSymbol)
 
-	if len(d.CEntryExtData) != 24 {
-		c = nil
+	if len(d.CEntryExtData) < 24 {
 		return errors.New("invalid extdata size for tint cosmetic")
 	}
-	// tint-specific conversions
+
+	// Read first 2 colors
 	c.PrimaryColor_R = math.Float32frombits(binary.LittleEndian.Uint32(d.CEntryExtData[0:4]))
 	c.PrimaryColor_G = math.Float32frombits(binary.LittleEndian.Uint32(d.CEntryExtData[4:8]))
 	c.PrimaryColor_B = math.Float32frombits(binary.LittleEndian.Uint32(d.CEntryExtData[8:12]))

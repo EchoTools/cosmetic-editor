@@ -167,7 +167,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 		state.EmissivePreviewImage.Refresh()
 	}
 
-	// Multi-line hex entry like original
+	// Multiline hex entry
 	emissiveColorsEntry := widget.NewMultiLineEntry()
 	var colorStr strings.Builder
 	for _, c := range t.Colors {
@@ -176,9 +176,14 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	}
 	emissiveColorsEntry.SetText(colorStr.String())
 
-	emissiveColorsEntry.OnChanged = func(s string) {
+	unk2Entry := widget.NewEntry(); unk2Entry.SetText(fmt.Sprintf("%.2f", t.Unk2))
+
+	saveEmissive := func() {
 		if state.IsLoadingEntry { return }
-		lines := strings.Split(s, "\n")
+		
+		u2, _ := data.ParseFloat32(unk2Entry.Text)
+
+		lines := strings.Split(emissiveColorsEntry.Text, "\n")
 		var newExtData []byte
 		var newColors [][3]float32
 		for _, line := range lines {
@@ -196,17 +201,23 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			binary.LittleEndian.PutUint32(newExtData[off+8:], math.Float32bits(bl))
 			newColors = append(newColors, [3]float32{r, g, bl})
 		}
-		if len(newExtData) > 0 {
-			entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
-			entry.CEntryExtData = newExtData
-			entry.CEntry.ExtDataParamCount = int64(len(newExtData) / 12)
-			entry.CEntry.ExtDataParamCount2 = entry.CEntry.ExtDataParamCount
-			entry.CEntry.OtherEntrySize = int64(len(newExtData))
-			refreshPreview(newColors)
-		}
+		
+		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
+		entry.CEntryExtData = newExtData
+		entry.CEntry.ExtDataParamCount = int64(len(newExtData) / 12)
+		entry.CEntry.ExtDataParamCount2 = entry.CEntry.ExtDataParamCount
+		entry.CEntry.OtherEntrySize = int64(len(newExtData))
+		entry.CEntry.EmissiveUnk2 = u2
+		refreshPreview(newColors)
 	}
 
+	emissiveColorsEntry.OnChanged = func(string) { saveEmissive() }
+	unk2Entry.OnChanged = func(string) { saveEmissive() }
+
 	state.CategoryEditor.Objects = []fyne.CanvasObject{
+		widget.NewForm(
+			widget.NewFormItem("Speed (Unk2)", unk2Entry),
+		),
 		widget.NewLabel("Colors (Hex, one per line)"),
 		container.NewGridWrap(fyne.NewSize(400, 150), emissiveColorsEntry),
 	}

@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -193,6 +194,12 @@ func TrimZero(b []byte) string {
 	return string(bytes.TrimRight(b, "\x00"))
 }
 
+// ParseFloat32 parses a string into a float32, returning 0 on error.
+func ParseFloat32(s string) (float32, error) {
+	val, err := strconv.ParseFloat(s, 32)
+	return float32(val), err
+}
+
 // FindTool looks for tools in ./Settings OR [ExeDir]/Settings
 func FindTool(settingsDir, toolName string) (string, error) {
 	// 1. Check Working Directory (./Settings/tool.exe)
@@ -314,7 +321,7 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 
 	var extractedPath string
 	symVal := HexToSymbol(hexStr)
-	
+
 	// 1. Try extracted folders
 	extPath := state.Settings.ExtractedPath
 	if extPath == "" {
@@ -873,6 +880,28 @@ $f = New-Object Windows.Forms.OpenFileDialog
 $f.Filter = '%s'
 if ($f.ShowDialog() -eq 'OK') { $f.FileName }
 `, filter)
+	cmd := exec.Command("powershell", "-Command", script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// PickSaveFile opens a native Windows save file dialog using PowerShell.
+func PickSaveFile(fallbackFilter, defaultName string) (string, error) {
+	filter := fallbackFilter
+	if filter == "" {
+		filter = "GIF Files (*.gif)|*.gif|All Files (*.*)|*.*"
+	}
+	script := fmt.Sprintf(`
+Add-Type -AssemblyName System.Windows.Forms
+$f = New-Object Windows.Forms.SaveFileDialog
+$f.Filter = '%s'
+$f.FileName = '%s'
+if ($f.ShowDialog() -eq 'OK') { $f.FileName }
+`, filter, defaultName)
 	cmd := exec.Command("powershell", "-Command", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.Output()

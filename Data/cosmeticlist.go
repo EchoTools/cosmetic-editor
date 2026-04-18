@@ -46,6 +46,11 @@ func BytesToCosmeticList(b []byte) (CosmeticList, error) {
 }
 
 func CosmeticListToBytes(cList CosmeticList) ([]byte, error) {
+	// Dynamically update header metadata based on actual slice length
+	cList.ListCount = uint64(len(cList.CosmeticEntries))
+	cList.ListCount2 = cList.ListCount
+	cList.ListSize = cList.ListCount * 664
+
 	var buf bytes.Buffer
 	binary.Write(&buf, binary.LittleEndian, [8]byte{})
 	binary.Write(&buf, binary.LittleEndian, cList.ListSize)

@@ -23,8 +23,11 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/nfnt/resize"
+	"image/color/palette"
+	"image/draw"
 )
 
 type CEmote struct {
@@ -489,6 +492,62 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	})
 	replaceGifBtn.Disable()
 
+	exportBtn := widget.NewButtonWithIcon("EXPORT TO GIF", theme.DownloadIcon(), func() {
+		if len(currentEmoteFrames) == 0 {
+			return
+		}
+
+		path, err := data.PickSaveFile("GIF Files (*.gif)|*.gif|All Files (*.*)|*.*", t.InternalName+".gif")
+		if err != nil || path == "" {
+			return
+		}
+
+		state.StatusLabel.SetText("Exporting GIF...")
+
+		go func() {
+			outGif := &gif.GIF{}
+			delay := 100 / int(t.Framerate)
+			if delay == 0 {
+				delay = 6
+			}
+
+			for _, fSym := range currentEmoteFrames {
+				data.EnsureTextureCached(state, fSym)
+				path := filepath.Join(cacheDir, fSym+".png")
+
+				f, err := os.Open(path)
+				if err != nil {
+					continue
+				}
+				img, _, err := image.Decode(f)
+				f.Close()
+				if err != nil {
+					continue
+				}
+
+				bounds := img.Bounds()
+				paletted := image.NewPaletted(bounds, palette.Plan9)
+				draw.FloydSteinberg.Draw(paletted, bounds, img, image.Point{})
+
+				outGif.Image = append(outGif.Image, paletted)
+				outGif.Delay = append(outGif.Delay, delay)
+			}
+
+			fOut, err := os.Create(path)
+			if err != nil {
+				fyne.Do(func() { state.StatusLabel.SetText("Failed to create file: " + err.Error()) })
+				return
+			}
+			gif.EncodeAll(fOut, outGif)
+			fOut.Close()
+
+			fyne.Do(func() {
+				state.StatusLabel.SetText("GIF Exported: " + filepath.Base(path))
+				dialog.ShowInformation("Success", "GIF exported successfully to:\n"+path, state.Window)
+			})
+		}()
+	})
+
 	state.CategoryEditor.Objects = []fyne.CanvasObject{
 		widget.NewForm(
 			widget.NewFormItem("Framerate", rate),
@@ -497,6 +556,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 		),
 		widget.NewLabel("Original Emote Preview"),
 		container.NewCenter(state.TextureImage),
+		exportBtn,
 		widget.NewSeparator(),
 		widget.NewLabel("Custom GIF Replacement"),
 		selectGifBtn,

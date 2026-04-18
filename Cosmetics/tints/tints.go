@@ -54,6 +54,9 @@ func (c *CTint) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	binary.LittleEndian.PutUint32(foo.CEntryExtData[16:20], math.Float32bits(c.SecondaryColor_G))
 	binary.LittleEndian.PutUint32(foo.CEntryExtData[20:24], math.Float32bits(c.SecondaryColor_B))
 
+	foo.CEntry.ExtDataParamCount = 2
+	foo.CEntry.ExtDataParamCount2 = 2
+
 	return foo, nil
 }
 
@@ -166,6 +169,10 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 		// Swap back when saving: UI pHex is Secondary, sHex is Primary
 		parseAndWrite(sHex.Text, 0)
 		parseAndWrite(pHex.Text, 12)
+
+		entry.CEntry.ExtDataParamCount = 2
+		entry.CEntry.ExtDataParamCount2 = 2
+		entry.CEntry.OtherEntrySize = 24
 	}
 	pHex.OnChanged = func(string) { saveColors() }
 	sHex.OnChanged = func(string) { saveColors() }
