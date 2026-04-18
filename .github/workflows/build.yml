@@ -1,4 +1,4 @@
-name: Build and Sign Windows Application
+name: Build Windows Application
 
 on:
   push:
@@ -35,38 +35,6 @@ jobs:
         # Package the app. fyne package handles the icon and resource embedding for Windows.
         fyne package -os windows -icon icon.ico -name "EchoVR-Cosmetics-Editor"
 
-    - name: Sign Executable
-      # This step only runs if the secrets are provided
-      if: "${{ secrets.WINDOWS_PFX_BASE64 != '' && secrets.WINDOWS_PFX_PASSWORD != '' }}"
-      shell: powershell
-      env:
-        PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
-        PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
-      run: |
-        Write-Host "Starting code signing..."
-        
-        # 1. Decode PFX to a temporary file
-        $pfxPath = "$PWD\certificate.pfx"
-        [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_BASE64))
-        
-        # 2. Find signtool.exe in the Windows SDK
-        $sdkPath = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
-        $signtool = Get-ChildItem -Path $sdkPath -Filter signtool.exe -Recurse | Sort-Object Length -Descending | Select-Object -First 1
-        
-        if ($null -eq $signtool) {
-          throw "signtool.exe not found in $sdkPath"
-        }
-        Write-Host "Using Signtool: $($signtool.FullName)"
-        
-        # 3. Sign the executable
-        & $signtool.FullName sign /f $pfxPath /p $env:PFX_PASSWORD /fd sha256 /tr http://timestamp.digicert.com /td sha256 "EchoVR-Cosmetics-Editor.exe"
-        
-        # 4. Verify the signature
-        & $signtool.FullName verify /pa "EchoVR-Cosmetics-Editor.exe"
-        
-        # 5. Cleanup
-        Remove-Item $pfxPath
-        Write-Host "Code signing complete."
 
     - name: Upload Build Artifact
       uses: actions/upload-artifact@v4
