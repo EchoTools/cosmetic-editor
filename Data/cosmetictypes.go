@@ -183,6 +183,32 @@ type CChassis struct {
 	Description     string
 	Rarity          string
 	ThumbnailSymbol string
+	TextureSymbol   string
+}
+
+func (c *CChassis) ToCosmeticEntry() (CosmeticEntry, error) {
+	foo := CosmeticEntry{}
+	foo.CEntry = NewCDescriptor()
+	foo.CEntry.CosmeticTypeSymbol = int64(ToSymbol("chassis"))
+	foo.CEntry.InternalNameSymbol = int64(ToSymbol(strings.TrimSpace(c.InternalName)))
+	foo.CEntry.InternalNameSymbol2 = foo.CEntry.InternalNameSymbol
+	copy(foo.CEntry.InternalNameString[:], []byte(c.InternalName))
+	copy(foo.CEntry.DisplayNameString[:], []byte(c.DisplayName))
+	copy(foo.CEntry.DescriptionString[:], []byte(c.Description))
+	foo.CEntry.RaritySymbol = HexToSymbol(c.Rarity)
+	foo.CEntry.ThumbnailSymbol = HexToSymbol(c.ThumbnailSymbol)
+	foo.CEntry.TextureSymbol = HexToSymbol(c.TextureSymbol)
+	return foo, nil
+}
+
+func (c *CChassis) FromCosmeticEntry(d CosmeticEntry) error {
+	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
+	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
+	c.Description = string(bytes.TrimRight(d.CEntry.DescriptionString[:], "\x00"))
+	c.Rarity = SymbolToHex(d.CEntry.RaritySymbol)
+	c.ThumbnailSymbol = SymbolToHex(d.CEntry.ThumbnailSymbol)
+	c.TextureSymbol = SymbolToHex(d.CEntry.TextureSymbol)
+	return nil
 }
 
 type CMedal struct {
@@ -330,6 +356,32 @@ type CDecal struct {
 	Description     string
 	Rarity          string
 	ThumbnailSymbol string
+	TextureSymbol   string
+}
+
+func (c *CDecal) ToCosmeticEntry() (CosmeticEntry, error) {
+	foo := CosmeticEntry{}
+	foo.CEntry = NewCDescriptor()
+	foo.CEntry.CosmeticTypeSymbol = int64(ToSymbol("decal"))
+	foo.CEntry.InternalNameSymbol = int64(ToSymbol(strings.TrimSpace(c.InternalName)))
+	foo.CEntry.InternalNameSymbol2 = foo.CEntry.InternalNameSymbol
+	copy(foo.CEntry.InternalNameString[:], []byte(c.InternalName))
+	copy(foo.CEntry.DisplayNameString[:], []byte(c.DisplayName))
+	copy(foo.CEntry.DescriptionString[:], []byte(c.Description))
+	foo.CEntry.RaritySymbol = HexToSymbol(c.Rarity)
+	foo.CEntry.ThumbnailSymbol = HexToSymbol(c.ThumbnailSymbol)
+	foo.CEntry.TextureSymbol = HexToSymbol(c.TextureSymbol)
+	return foo, nil
+}
+
+func (c *CDecal) FromCosmeticEntry(d CosmeticEntry) error {
+	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
+	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
+	c.Description = string(bytes.TrimRight(d.CEntry.DescriptionString[:], "\x00"))
+	c.Rarity = SymbolToHex(d.CEntry.RaritySymbol)
+	c.ThumbnailSymbol = SymbolToHex(d.CEntry.ThumbnailSymbol)
+	c.TextureSymbol = SymbolToHex(d.CEntry.TextureSymbol)
+	return nil
 }
 
 type CTag struct {
@@ -633,6 +685,7 @@ func (c *CTint) ToCosmeticEntry() (CosmeticEntry, error) {
 	copy(foo.CEntry.DescriptionString[:], []byte(c.Description))
 
 	foo.CEntry.RaritySymbol = HexToSymbol(c.Rarity)
+
 	foo.CEntry.ThumbnailSymbol = HexToSymbol(c.ThumbnailSymbol)
 
 	buf := make([]byte, 24)
@@ -644,9 +697,9 @@ func (c *CTint) ToCosmeticEntry() (CosmeticEntry, error) {
 	binary.LittleEndian.PutUint32(buf[20:], math.Float32bits(c.SecondaryColor_B))
 	foo.CEntryExtData = buf
 
-	foo.CEntry.OtherEntrySize = int64(len(foo.CEntryExtData))
-	foo.CEntry.ExtDataParamCount = 2
-	foo.CEntry.ExtDataParamCount2 = 2
+	foo.CEntry.OtherEntrySize = int64(len(foo.CEntryExtData)) // always 72 for tints(?)
+	foo.CEntry.ExtDataParamCount = 2                          // always 2 for tints
+	foo.CEntry.ExtDataParamCount2 = 2                         // always 2 for tints
 
 	return foo, nil
 }
@@ -658,11 +711,11 @@ func (c *CTint) FromCosmeticEntry(d CosmeticEntry) error {
 	c.Rarity = SymbolToHex(d.CEntry.RaritySymbol)
 	c.ThumbnailSymbol = SymbolToHex(d.CEntry.ThumbnailSymbol)
 
-	if len(d.CEntryExtData) < 24 {
+	if len(d.CEntryExtData) != 24 {
+		c = nil
 		return errors.New("invalid extdata size for tint cosmetic")
 	}
-
-	// Read first 2 colors
+	// tint-specific conversions
 	c.PrimaryColor_R = math.Float32frombits(binary.LittleEndian.Uint32(d.CEntryExtData[0:4]))
 	c.PrimaryColor_G = math.Float32frombits(binary.LittleEndian.Uint32(d.CEntryExtData[4:8]))
 	c.PrimaryColor_B = math.Float32frombits(binary.LittleEndian.Uint32(d.CEntryExtData[8:12]))

@@ -13,48 +13,12 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-type CEmblem struct {
-	InternalName    string
-	DisplayName     string
-	Description     string
-	Rarity          int64
-	ThumbnailSymbol int64
-	TextureSymbol   int64
-}
-
-func (c *CEmblem) ToCosmeticEntry() (data.CosmeticEntry, error) {
-	foo := data.CosmeticEntry{}
-	foo.CEntry = data.NewCDescriptor()
-	foo.CEntry.CosmeticTypeSymbol = int64(data.ToSymbol("decal"))
-	foo.CEntry.InternalNameSymbol = int64(data.ToSymbol(strings.TrimSpace(c.InternalName)))
-	foo.CEntry.InternalNameSymbol2 = foo.CEntry.InternalNameSymbol
-	copy(foo.CEntry.InternalNameString[:], []byte(c.InternalName))
-	copy(foo.CEntry.DisplayNameString[:], []byte(c.DisplayName))
-	copy(foo.CEntry.DescriptionString[:], []byte(c.Description))
-	foo.CEntry.RaritySymbol = c.Rarity
-	foo.CEntry.ThumbnailSymbol = c.ThumbnailSymbol
-	foo.CEntry.TextureSymbol = c.TextureSymbol
-	return foo, nil
-}
-
-func (c *CEmblem) FromCosmeticEntry(d data.CosmeticEntry) error {
-	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
-	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
-	c.Description = string(bytes.TrimRight(d.CEntry.DescriptionString[:], "\x00"))
-	c.Rarity = d.CEntry.RaritySymbol
-	c.ThumbnailSymbol = d.CEntry.ThumbnailSymbol
-	c.TextureSymbol = d.CEntry.TextureSymbol
-	return nil
-}
-
 var (
 	emblemList             *widget.List
 	searchEntry            *widget.Entry
 	emblemPreviewImage     *canvas.Image
 	emblemReplacementImage *canvas.Image
-	selectedEmblemPngPath  string
 	replaceEmblemBtn       *widget.Button
-	curEmblemOrigPath      string
 )
 
 func SetupUI(state *data.AppState) fyne.CanvasObject {
@@ -82,28 +46,32 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	}
 	state.SelectedIndex = realIdx; state.SelectedCategory = "Emblems"
 	state.RefreshCurrent = func(s *data.AppState) { LoadToEditor(s, realIdx) }
-	t := CEmblem{}; t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
+	
+	entry := state.CosmeticList.CosmeticEntries[realIdx]
+	e := data.CEmblem{}
+	e.FromCosmeticEntry(entry)
+
 	state.IsLoadingEntry = true
-	state.NameEntry.SetText(t.DisplayName); state.DescEntry.SetText(t.Description)
-	state.ThumbIdEntry.SetText(data.SymbolToHex(t.ThumbnailSymbol))
-	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
-	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
-	state.CurrentAssetSymbol = data.SymbolToHex(t.TextureSymbol)
+	state.NameEntry.SetText(e.DisplayName); state.DescEntry.SetText(e.Description)
+	state.ThumbIdEntry.SetText(data.SymbolToHex(data.HexToSymbol(e.ThumbnailSymbol)))
+	state.RaritySelect.SetSelected(state.GetRarityName(data.HexToSymbol(e.Rarity)))
+	state.UpdateSidebarThumbnail(data.HexToSymbol(e.ThumbnailSymbol))
+	state.CurrentAssetSymbol = e.TextureSymbol
 	state.CurrentOriginalAssetPath = ""
-	if t.TextureSymbol != 0 {
-		p := filepath.Join(state.Settings.TextureCachePath, data.SymbolToHex(t.TextureSymbol)+".png")
+	if e.TextureSymbol != "" {
+		p := filepath.Join(state.Settings.TextureCachePath, e.TextureSymbol+".png")
 		if _, err := os.Stat(p); err == nil {
 			state.CurrentOriginalAssetPath = p
 		}
 	}
-	texEnt := widget.NewEntry(); texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
+	texEnt := widget.NewEntry(); texEnt.SetText(e.TextureSymbol)
 	texEnt.OnChanged = func(s string) {
 		if state.IsLoadingEntry { return }
 		state.CosmeticList.CosmeticEntries[state.SelectedIndex].CEntry.TextureSymbol = data.HexToSymbol(s)
 		state.CurrentAssetSymbol = s
 	}
 	replaceEmblemBtn = widget.NewButton("Replace Emblem Texture", func() {
-		data.HandleTextureReplacement(state, data.SymbolToHex(t.TextureSymbol), state.CurrentReplacementPath, replaceEmblemBtn, "Replacing Emblem...")
+		data.HandleTextureReplacement(state, e.TextureSymbol, state.CurrentReplacementPath, replaceEmblemBtn, "Replacing Emblem...")
 	})
 	if state.CurrentReplacementPath == "" {
 		replaceEmblemBtn.Disable()

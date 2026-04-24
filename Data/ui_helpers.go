@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -194,12 +193,6 @@ func TrimZero(b []byte) string {
 	return string(bytes.TrimRight(b, "\x00"))
 }
 
-// ParseFloat32 parses a string into a float32, returning 0 on error.
-func ParseFloat32(s string) (float32, error) {
-	val, err := strconv.ParseFloat(s, 32)
-	return float32(val), err
-}
-
 // FindTool looks for tools in ./Settings OR [ExeDir]/Settings
 func FindTool(settingsDir, toolName string) (string, error) {
 	// 1. Check Working Directory (./Settings/tool.exe)
@@ -321,7 +314,7 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 
 	var extractedPath string
 	symVal := HexToSymbol(hexStr)
-
+	
 	// 1. Try extracted folders
 	extPath := state.Settings.ExtractedPath
 	if extPath == "" {
@@ -418,13 +411,13 @@ const (
 	TexMetaFolderPC   = "4a4c32c49300b8a0"
 
 	// Quest Constants
-	InputDirNameQuest    = "input-quest"
+	InputDirNameQuest    = "quest-input"
 	TintFolderQuest      = "24cbfd54e9a7f2ea"
-	TintFileNameQuest    = "bb758e9809650e3b"
+	TintFileNameQuest    = "bb75979f708e523b"
 	ThumbTexFolderQuest  = "489bb35d53ca50e9"
-	ThumbMetaFolderQuest = "e2ef0854d0cd69b8"
+	ThumbMetaFolderQuest = "e2efe7289d5985b8"
 	TexTexFolderQuest    = "489bb35d53ca50e9"
-	TexMetaFolderQuest   = "e2ef0854d0cd69b8"
+	TexMetaFolderQuest   = "e2efe7289d5985b8"
 )
 
 // HandlePNGThumbnailReplacement allows direct replacement of a thumbnail with a PNG file.
@@ -800,19 +793,49 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 			}
 		}
 
-		generatedFile := filepath.Join(tempDir, "temp_replacement.dds")
-		cmd := exec.Command(texconvPath, "encode", finalPngPath, generatedFile)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		if out, err := cmd.CombinedOutput(); err != nil {
-			fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
-			return
+		var generatedFile string
+		var ddsData []byte
+
+		if state.Settings.Mode == "Quest" {
+			astcPath, err := FindTool(settingsPath, "astcenc-avx2.exe")
+			if err != nil {
+				fyne.Do(func() { dialog.ShowError(err, w) })
+				return
+			}
+			tempAstcPath := filepath.Join(tempDir, "temp_replacement.astc")
+			cmd := exec.Command(astcPath, "-cs", finalPngPath, tempAstcPath, "6x6", "-medium")
+			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			if out, err := cmd.CombinedOutput(); err != nil {
+				fyne.Do(func() { dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w) })
+				return
+			}
+
+			astcData, _ := os.ReadFile(tempAstcPath)
+			if len(astcData) < 16 {
+				fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to generate ASTC"), w) })
+				return
+			}
+
+			// Strip the 16 byte ASTC header
+			ddsData = astcData[16:]
+			generatedFile = filepath.Join(tempDir, "temp_replacement_stripped.bin")
+			os.WriteFile(generatedFile, ddsData, 0644)
+		} else {
+			generatedFile = filepath.Join(tempDir, "temp_replacement.dds")
+			cmd := exec.Command(texconvPath, "encode", finalPngPath, generatedFile)
+			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			if out, err := cmd.CombinedOutput(); err != nil {
+				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
+				return
+			}
+
+			ddsData, err = os.ReadFile(generatedFile)
+			if err != nil {
+				fyne.Do(func() { dialog.ShowError(err, w) })
+				return
+			}
 		}
 
-		ddsData, err := os.ReadFile(generatedFile)
-		if err != nil {
-			fyne.Do(func() { dialog.ShowError(err, w) })
-			return
-		}
 		ddsSize := uint32(len(ddsData))
 
 		// 2. Resolve Original Metadata for Patching
@@ -880,28 +903,6 @@ $f = New-Object Windows.Forms.OpenFileDialog
 $f.Filter = '%s'
 if ($f.ShowDialog() -eq 'OK') { $f.FileName }
 `, filter)
-	cmd := exec.Command("powershell", "-Command", script)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-// PickSaveFile opens a native Windows save file dialog using PowerShell.
-func PickSaveFile(fallbackFilter, defaultName string) (string, error) {
-	filter := fallbackFilter
-	if filter == "" {
-		filter = "GIF Files (*.gif)|*.gif|All Files (*.*)|*.*"
-	}
-	script := fmt.Sprintf(`
-Add-Type -AssemblyName System.Windows.Forms
-$f = New-Object Windows.Forms.SaveFileDialog
-$f.Filter = '%s'
-$f.FileName = '%s'
-if ($f.ShowDialog() -eq 'OK') { $f.FileName }
-`, filter, defaultName)
 	cmd := exec.Command("powershell", "-Command", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.Output()

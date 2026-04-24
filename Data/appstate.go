@@ -20,11 +20,11 @@ type AppState struct {
 
 	// Data
 	CosmeticList CosmeticList
-
+	
 	// Indices and Filtered state for each category
 	CategoryIndices  map[string][]int
 	CategoryFiltered map[string][]int
-
+	
 	// Selection State
 	SelectedCategory string
 	SelectedIndex    int // index in the respective category list
@@ -41,11 +41,11 @@ type AppState struct {
 	TextureImage *canvas.Image
 	ReplaceBtn   *widget.Button
 	GenThumbBtn  *widget.Button
-
+	
 	// Shared UI indicators or previews
-	PreviewTintIndex     int // For the preview tint feature
-	PreviewTintCheck     *widget.Check
-	PreviewTintSelect    *widget.Select
+	PreviewTintIndex int // For the preview tint feature
+	PreviewTintCheck *widget.Check
+	PreviewTintSelect *widget.Select
 	PreviewTintContainer *fyne.Container
 
 	// Animation Control
@@ -73,7 +73,6 @@ type AppState struct {
 	CurrentOriginalAssetPath string
 	CurrentReplacementPath   string
 }
-
 // UpdateSidebarThumbnail refreshes the sidebar thumbnail from the local texture cache.
 func (s *AppState) UpdateSidebarThumbnail(symbol int64) {
 	if s.ThumbImage == nil {
@@ -144,12 +143,12 @@ func (s *AppState) ClearUI() {
 	s.RaritySelect.SetSelected("")
 	s.UpdateSidebarThumbnail(0)
 	s.UpdateMainTexture(0)
-
+	
 	if s.CategoryEditor != nil {
 		s.CategoryEditor.Objects = nil
 		s.CategoryEditor.Refresh()
 	}
-
+	
 	if s.ThumbIdItem != nil {
 		s.ThumbIdItem.Widget.Show()
 	}
@@ -277,7 +276,12 @@ func (s *AppState) RefreshIndices() {
 		case tagSym:
 			s.CategoryIndices["Tags"] = append(s.CategoryIndices["Tags"], i)
 		case decalSym:
-			s.CategoryIndices["Emblems"] = append(s.CategoryIndices["Emblems"], i)
+			internalName := strings.ToLower(string(bytes.TrimRight(e.CEntry.InternalNameString[:], "\x00")))
+			if strings.HasPrefix(internalName, "rwd_decal_") {
+				s.CategoryIndices["Decals"] = append(s.CategoryIndices["Decals"], i)
+			} else {
+				s.CategoryIndices["Emblems"] = append(s.CategoryIndices["Emblems"], i)
+			}
 		case medalSym:
 			s.CategoryIndices["Medals"] = append(s.CategoryIndices["Medals"], i)
 		case pipSym:

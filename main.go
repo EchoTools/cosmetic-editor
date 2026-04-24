@@ -19,6 +19,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"evrCosmeticResearch/Cosmetics/banners"
+	"evrCosmeticResearch/Cosmetics/decals"
 	"evrCosmeticResearch/Cosmetics/emblems"
 	"evrCosmeticResearch/Cosmetics/emissives"
 	"evrCosmeticResearch/Cosmetics/emotes"
@@ -143,15 +144,15 @@ func main() {
 	state.CategoryEditor = container.NewVBox()
 
 	// 2. NAVIGATION & CONTENT ASSEMBLY
-	catNames := []string{"Tints", "Titles", "Emissives", "Fanfares", "Emotes", "Banners", "Tags", "Emblems", "Medals", "Pips", "Patterns"}
+	catNames := []string{"Tints", "Titles", "Emissives", "Fanfares", "Emotes", "Banners", "Tags", "Emblems", "Decals", "Medals", "Pips", "Patterns"}
 	catIcons := []fyne.Resource{
 		theme.ColorPaletteIcon(), theme.DocumentIcon(), theme.VisibilityIcon(), theme.VolumeUpIcon(), theme.MediaPlayIcon(),
-		theme.GridIcon(), theme.ContentCopyIcon(), theme.ComputerIcon(), theme.CheckButtonIcon(), theme.HelpIcon(), theme.MenuIcon(),
+		theme.GridIcon(), theme.ContentCopyIcon(), theme.ComputerIcon(), theme.CheckButtonIcon(), theme.HelpIcon(), theme.MenuIcon(), theme.ListIcon(),
 	}
 
 	catUIs := []fyne.CanvasObject{
 		tints.SetupUI(state), titles.SetupUI(state), emissives.SetupUI(state), fanfares.SetupUI(state), emotes.SetupUI(state),
-		banners.SetupUI(state), tags.SetupUI(state), emblems.SetupUI(state), medals.SetupUI(state), pips.SetupUI(state), patterns.SetupUI(state),
+		banners.SetupUI(state), tags.SetupUI(state), emblems.SetupUI(state), decals.SetupUI(state), medals.SetupUI(state), pips.SetupUI(state), patterns.SetupUI(state),
 	}
 
 	contentStack := container.NewStack()
@@ -218,7 +219,7 @@ func main() {
 			showTextureCard = false
 			showThumbImage = false
 			state.ThumbIdItem.Widget.Hide()
-		case "Banners", "Tags", "Emblems", "Medals", "Pips", "Patterns":
+		case "Banners", "Tags", "Emblems", "Decals", "Medals", "Pips", "Patterns":
 			showTextureCard = false
 			showThumbImage = false
 			state.ThumbIdItem.Widget.Hide()
@@ -247,7 +248,7 @@ func main() {
 	}
 
 	row1 := container.NewGridWithColumns(5, navButtons[0], navButtons[1], navButtons[2], navButtons[3], navButtons[4])
-	row2 := container.NewGridWithColumns(6, navButtons[5], navButtons[6], navButtons[7], navButtons[8], navButtons[9], navButtons[10])
+	row2 := container.NewGridWithColumns(7, navButtons[5], navButtons[6], navButtons[7], navButtons[8], navButtons[9], navButtons[10], navButtons[11])
 	navArea := container.NewVBox(row1, row2)
 
 	// Action Bar Enhancement
