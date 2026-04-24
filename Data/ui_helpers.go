@@ -16,8 +16,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
-	"unsafe"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -158,12 +156,14 @@ func RefreshAssetPreview(state *AppState, origImg, replImg *canvas.Image, origPa
 					// Extraction logic for Tint (6 floats, 24 bytes)
 					extData := entry.CEntryExtData
 					if len(extData) >= 24 {
-						priR := *(*float32)(unsafe.Pointer(&extData[0]))
-						priG := *(*float32)(unsafe.Pointer(&extData[4]))
-						priB := *(*float32)(unsafe.Pointer(&extData[8]))
-						secR := *(*float32)(unsafe.Pointer(&extData[12]))
-						secG := *(*float32)(unsafe.Pointer(&extData[16]))
-						secB := *(*float32)(unsafe.Pointer(&extData[20]))
+						// Use binary.LittleEndian instead of unsafe.Pointer to avoid
+						// unaligned-read UB and platform-specific behaviour.
+						priR := math.Float32frombits(binary.LittleEndian.Uint32(extData[0:4]))
+						priG := math.Float32frombits(binary.LittleEndian.Uint32(extData[4:8]))
+						priB := math.Float32frombits(binary.LittleEndian.Uint32(extData[8:12]))
+						secR := math.Float32frombits(binary.LittleEndian.Uint32(extData[12:16]))
+						secG := math.Float32frombits(binary.LittleEndian.Uint32(extData[16:20]))
+						secB := math.Float32frombits(binary.LittleEndian.Uint32(extData[20:24]))
 
 						pri := color.RGBA{uint8(priR * 255), uint8(priG * 255), uint8(priB * 255), 255}
 						sec := color.RGBA{uint8(secR * 255), uint8(secG * 255), uint8(secB * 255), 255}
@@ -314,7 +314,7 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 
 	var extractedPath string
 	symVal := HexToSymbol(hexStr)
-	
+
 	// 1. Try extracted folders
 	extPath := state.Settings.ExtractedPath
 	if extPath == "" {
@@ -377,7 +377,7 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 	// Convert: keeps name but adds .png
 	outPng := filepath.Join(cacheDir, hexStr+".png")
 	cmd := exec.Command(texconvPath, "decode", tempDds, outPng)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = HiddenProcAttr()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if state.StatusLabel != nil {
 			state.StatusLabel.SetText("texconv failed for " + hexStr)
@@ -425,6 +425,15 @@ func HandlePNGThumbnailReplacement(state *AppState, symbol string, selectedPngPa
 	if symbol == "" || selectedPngPath == "" {
 		return
 	}
+	// Validate symbol is a pure hex string to prevent path traversal.
+	safeSymbol, err := SafeHexFilename(symbol)
+	if err != nil {
+		if state.StatusLabel != nil {
+			state.StatusLabel.SetText("Invalid symbol: " + err.Error())
+		}
+		return
+	}
+	symbol = safeSymbol
 	if btn != nil {
 		btn.Disable()
 	}
@@ -452,7 +461,7 @@ func HandlePNGThumbnailReplacement(state *AppState, symbol string, selectedPngPa
 			}
 			tempAstcPath := filepath.Join(tempDir, "temp_thumb.astc")
 			cmd := exec.Command(astcPath, "-cs", selectedPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fyne.Do(func() { dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w) })
 				return
@@ -480,7 +489,7 @@ func HandlePNGThumbnailReplacement(state *AppState, symbol string, selectedPngPa
 			}
 			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
 			cmd := exec.Command(texconvPath, "encode", selectedPngPath, generatedFile)
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
 				return
@@ -501,11 +510,18 @@ func HandlePNGThumbnailReplacement(state *AppState, symbol string, selectedPngPa
 		texDir := filepath.Join(absInputDir, texFolder)
 		os.MkdirAll(texDir, 0755)
 		targetTex := filepath.Join(texDir, symbol)
-		os.Rename(generatedFile, targetTex)
+		if err := os.Rename(generatedFile, targetTex); err != nil {
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to move generated file: %w", err), w) })
+			return
+		}
 
 		metaDir := filepath.Join(absInputDir, metaFolder)
 		os.MkdirAll(metaDir, 0755)
-		fi, _ := os.Stat(targetTex)
+		fi, err := os.Stat(targetTex)
+		if err != nil {
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to stat target texture: %w", err), w) })
+			return
+		}
 
 		symVal := HexToSymbol(symbol)
 		extPath := state.Settings.ExtractedPath
@@ -585,7 +601,13 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 		return
 	}
 
-	idStr = strings.ToLower(idStr)
+	// Validate idStr is a pure hex string to prevent path traversal.
+	safeID, err := SafeHexFilename(idStr)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("invalid thumbnail ID %q: %w", idStr, err), state.Window)
+		return
+	}
+	idStr = safeID
 	mode := state.Settings.Mode
 	w := state.Window
 
@@ -673,7 +695,7 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 			}
 			tempAstcPath := filepath.Join(tempDir, "temp_thumb.astc")
 			cmd := exec.Command(astcPath, "-cs", tempPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w)
 				return
@@ -697,7 +719,7 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 			}
 			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
 			cmd := exec.Command(texconvPath, "encode", tempPngPath, generatedFile)
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w)
 				return
@@ -719,12 +741,19 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 		texDir := filepath.Join(absInputDir, thumbTexFolder)
 		os.MkdirAll(texDir, 0755)
 		targetTex := filepath.Join(texDir, idStr)
-		os.Rename(generatedFile, targetTex)
+		if err := os.Rename(generatedFile, targetTex); err != nil {
+			dialog.ShowError(fmt.Errorf("failed to move generated thumbnail: %w", err), w)
+			return
+		}
 
 		metaDir := filepath.Join(absInputDir, thumbMetaFolder)
 		os.MkdirAll(metaDir, 0755)
 
-		fi, _ := os.Stat(targetTex)
+		fi, err := os.Stat(targetTex)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("failed to stat generated thumbnail: %w", err), w)
+			return
+		}
 		WriteMetadata(filepath.Join(metaDir, idStr), mode, "", uint32(fi.Size()))
 
 		os.Remove(tempPngPath)
@@ -736,6 +765,15 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 	if symbol == "" || selectedPngPath == "" {
 		return
 	}
+	// Validate symbol is a pure hex string to prevent path traversal.
+	safeSymbol, err := SafeHexFilename(symbol)
+	if err != nil {
+		if state.StatusLabel != nil {
+			state.StatusLabel.SetText("Invalid symbol: " + err.Error())
+		}
+		return
+	}
+	symbol = safeSymbol
 	btn.Disable()
 	state.StatusLabel.SetText(statusMsg)
 	w := state.Window
@@ -804,7 +842,7 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 			}
 			tempAstcPath := filepath.Join(tempDir, "temp_replacement.astc")
 			cmd := exec.Command(astcPath, "-cs", finalPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fyne.Do(func() { dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w) })
 				return
@@ -823,7 +861,7 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 		} else {
 			generatedFile = filepath.Join(tempDir, "temp_replacement.dds")
 			cmd := exec.Command(texconvPath, "encode", finalPngPath, generatedFile)
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
 				return
@@ -883,7 +921,7 @@ $f.FileName = "Folder Selection."
 if ($f.ShowDialog() -eq 'OK') { Split-Path $f.FileName }
 `
 	cmd := exec.Command("powershell", "-Command", script)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = HiddenProcAttr()
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -892,11 +930,21 @@ if ($f.ShowDialog() -eq 'OK') { Split-Path $f.FileName }
 }
 
 // PickFile opens a native Windows file selection dialog using PowerShell.
+//
+// SECURITY NOTE: the filter string is interpolated directly into a PowerShell
+// script that is passed to -Command.  A single quote (') in the filter would
+// terminate the PS string and allow arbitrary command injection.  All current
+// call-sites use hardcoded literals without single quotes, so the immediate
+// risk is low, but callers MUST NOT pass user-controlled input here without
+// first sanitizing it.  The sanitization below strips single quotes as a
+// defence-in-depth measure.
 func PickFile(fallbackFilter string) (string, error) {
 	filter := fallbackFilter
 	if filter == "" {
 		filter = "All Files (*.*)|*.*"
 	}
+	// Strip single-quote characters to prevent PowerShell string-escape injection.
+	filter = strings.ReplaceAll(filter, "'", "")
 	script := fmt.Sprintf(`
 Add-Type -AssemblyName System.Windows.Forms
 $f = New-Object Windows.Forms.OpenFileDialog
@@ -904,7 +952,7 @@ $f.Filter = '%s'
 if ($f.ShowDialog() -eq 'OK') { $f.FileName }
 `, filter)
 	cmd := exec.Command("powershell", "-Command", script)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = HiddenProcAttr()
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
