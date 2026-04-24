@@ -21,6 +21,7 @@ var (
 	replaceDecalBtn       *widget.Button
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Decals tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Decals..."
@@ -35,24 +36,31 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 		},
 	)
 	decalList.OnSelected = func(id widget.ListItemID) { LoadToEditor(state, state.CategoryFiltered["Decals"][id]) }
-	decalPreviewImage = canvas.NewImageFromResource(nil); decalPreviewImage.FillMode = canvas.ImageFillContain; decalPreviewImage.SetMinSize(fyne.NewSize(0, 300))
-	decalReplacementImage = canvas.NewImageFromResource(nil); decalReplacementImage.FillMode = canvas.ImageFillContain; decalReplacementImage.SetMinSize(fyne.NewSize(0, 300))
+	decalPreviewImage = canvas.NewImageFromResource(nil)
+	decalPreviewImage.FillMode = canvas.ImageFillContain
+	decalPreviewImage.SetMinSize(fyne.NewSize(0, 300))
+	decalReplacementImage = canvas.NewImageFromResource(nil)
+	decalReplacementImage.FillMode = canvas.ImageFillContain
+	decalReplacementImage.SetMinSize(fyne.NewSize(0, 300))
 	return container.NewBorder(searchEntry, nil, nil, nil, decalList)
 }
 
+// LoadToEditor populates the shared sidebar with the decal at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	if state.SelectedIndex != realIdx || state.SelectedCategory != "Decals" {
 		state.CurrentReplacementPath = ""
 	}
-	state.SelectedIndex = realIdx; state.SelectedCategory = "Decals"
+	state.SelectedIndex = realIdx
+	state.SelectedCategory = "Decals"
 	state.RefreshCurrent = func(s *data.AppState) { LoadToEditor(s, realIdx) }
-	
+
 	entry := state.CosmeticList.CosmeticEntries[realIdx]
 	d := data.CDecal{}
 	d.FromCosmeticEntry(entry)
 
 	state.IsLoadingEntry = true
-	state.NameEntry.SetText(d.DisplayName); state.DescEntry.SetText(d.Description)
+	state.NameEntry.SetText(d.DisplayName)
+	state.DescEntry.SetText(d.Description)
 	state.ThumbIdEntry.SetText(data.SymbolToHex(data.HexToSymbol(d.ThumbnailSymbol)))
 	state.RaritySelect.SetSelected(state.GetRarityName(data.HexToSymbol(d.Rarity)))
 	state.UpdateSidebarThumbnail(data.HexToSymbol(d.ThumbnailSymbol))
@@ -64,9 +72,12 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			state.CurrentOriginalAssetPath = p
 		}
 	}
-	texEnt := widget.NewEntry(); texEnt.SetText(d.TextureSymbol)
+	texEnt := widget.NewEntry()
+	texEnt.SetText(d.TextureSymbol)
 	texEnt.OnChanged = func(s string) {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		state.CosmeticList.CosmeticEntries[state.SelectedIndex].CEntry.TextureSymbol = data.HexToSymbol(s)
 		state.CurrentAssetSymbol = s
 	}
@@ -99,11 +110,17 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the decal list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
-	query = strings.ToLower(query); state.CategoryFiltered["Decals"] = []int{}
+	query = strings.ToLower(query)
+	state.CategoryFiltered["Decals"] = []int{}
 	for _, idx := range state.CategoryIndices["Decals"] {
 		dName := strings.ToLower(string(bytes.TrimRight(state.CosmeticList.CosmeticEntries[idx].CEntry.DisplayNameString[:], "\x00")))
-		if query == "" || strings.Contains(dName, query) { state.CategoryFiltered["Decals"] = append(state.CategoryFiltered["Decals"], idx) }
+		if query == "" || strings.Contains(dName, query) {
+			state.CategoryFiltered["Decals"] = append(state.CategoryFiltered["Decals"], idx)
+		}
 	}
-	if decalList != nil { decalList.Refresh() }
+	if decalList != nil {
+		decalList.Refresh()
+	}
 }

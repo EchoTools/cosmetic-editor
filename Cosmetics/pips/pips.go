@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// CPip holds the editable fields for a pip cosmetic entry.
 type CPip struct {
 	InternalName    string
 	DisplayName     string
@@ -22,6 +23,7 @@ type CPip struct {
 	TextureSymbol   int64
 }
 
+// ToCosmeticEntry converts a CPip to a raw CosmeticEntry for serialization.
 func (c *CPip) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	foo := data.CosmeticEntry{}
 	foo.CEntry = data.NewCDescriptor()
@@ -37,6 +39,7 @@ func (c *CPip) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CPip from a raw CosmeticEntry.
 func (c *CPip) FromCosmeticEntry(d data.CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -49,7 +52,7 @@ func (c *CPip) FromCosmeticEntry(d data.CosmeticEntry) error {
 
 var (
 	pipList             *widget.List
-	searchEntry            *widget.Entry
+	searchEntry         *widget.Entry
 	pipPreviewImage     *canvas.Image
 	pipReplacementImage *canvas.Image
 	selectedPipPngPath  string
@@ -57,6 +60,7 @@ var (
 	curPipOrigPath      string
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Pips tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Pips..."
@@ -71,20 +75,28 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 		},
 	)
 	pipList.OnSelected = func(id widget.ListItemID) { LoadToEditor(state, state.CategoryFiltered["Pips"][id]) }
-	pipPreviewImage = canvas.NewImageFromResource(nil); pipPreviewImage.FillMode = canvas.ImageFillContain; pipPreviewImage.SetMinSize(fyne.NewSize(0, 300))
-	pipReplacementImage = canvas.NewImageFromResource(nil); pipReplacementImage.FillMode = canvas.ImageFillContain; pipReplacementImage.SetMinSize(fyne.NewSize(0, 300))
+	pipPreviewImage = canvas.NewImageFromResource(nil)
+	pipPreviewImage.FillMode = canvas.ImageFillContain
+	pipPreviewImage.SetMinSize(fyne.NewSize(0, 300))
+	pipReplacementImage = canvas.NewImageFromResource(nil)
+	pipReplacementImage.FillMode = canvas.ImageFillContain
+	pipReplacementImage.SetMinSize(fyne.NewSize(0, 300))
 	return container.NewBorder(searchEntry, nil, nil, nil, pipList)
 }
 
+// LoadToEditor populates the shared sidebar with the pip at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	if state.SelectedIndex != realIdx || state.SelectedCategory != "Pips" {
 		state.CurrentReplacementPath = ""
 	}
-	state.SelectedIndex = realIdx; state.SelectedCategory = "Pips"
+	state.SelectedIndex = realIdx
+	state.SelectedCategory = "Pips"
 	state.RefreshCurrent = func(s *data.AppState) { LoadToEditor(s, realIdx) }
-	t := CPip{}; t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
+	t := CPip{}
+	t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
 	state.IsLoadingEntry = true
-	state.NameEntry.SetText(t.DisplayName); state.DescEntry.SetText(t.Description)
+	state.NameEntry.SetText(t.DisplayName)
+	state.DescEntry.SetText(t.Description)
 	state.ThumbIdEntry.SetText(data.SymbolToHex(t.ThumbnailSymbol))
 	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
@@ -96,9 +108,12 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			state.CurrentOriginalAssetPath = p
 		}
 	}
-	texEnt := widget.NewEntry(); texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
+	texEnt := widget.NewEntry()
+	texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
 	texEnt.OnChanged = func(s string) {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		state.CosmeticList.CosmeticEntries[state.SelectedIndex].CEntry.TextureSymbol = data.HexToSymbol(s)
 		state.CurrentAssetSymbol = s
 	}
@@ -131,11 +146,17 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the pips list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
-	query = strings.ToLower(query); state.CategoryFiltered["Pips"] = []int{}
+	query = strings.ToLower(query)
+	state.CategoryFiltered["Pips"] = []int{}
 	for _, idx := range state.CategoryIndices["Pips"] {
 		dName := strings.ToLower(string(bytes.TrimRight(state.CosmeticList.CosmeticEntries[idx].CEntry.DisplayNameString[:], "\x00")))
-		if query == "" || strings.Contains(dName, query) { state.CategoryFiltered["Pips"] = append(state.CategoryFiltered["Pips"], idx) }
+		if query == "" || strings.Contains(dName, query) {
+			state.CategoryFiltered["Pips"] = append(state.CategoryFiltered["Pips"], idx)
+		}
 	}
-	if pipList != nil { pipList.Refresh() }
+	if pipList != nil {
+		pipList.Refresh()
+	}
 }

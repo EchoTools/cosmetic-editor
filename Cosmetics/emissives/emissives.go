@@ -18,6 +18,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// CEmissive holds the editable fields for an emissive cosmetic entry in the UI layer.
 type CEmissive struct {
 	InternalName    string
 	DisplayName     string
@@ -31,6 +32,7 @@ type CEmissive struct {
 	Colors [][3]float32
 }
 
+// ToCosmeticEntry converts a CEmissive to a raw CosmeticEntry for serialization.
 func (c *CEmissive) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	foo := data.CosmeticEntry{}
 	foo.CEntry = data.NewCDescriptor()
@@ -64,6 +66,7 @@ func (c *CEmissive) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CEmissive from a raw CosmeticEntry.
 func (c *CEmissive) FromCosmeticEntry(d data.CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -92,6 +95,7 @@ var (
 	searchEntry  *widget.Entry
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Emissives tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Emissives..."
@@ -124,6 +128,7 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 	return content
 }
 
+// LoadToEditor populates the shared sidebar with the emissive at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	state.SelectedIndex = realIdx
 	state.SelectedCategory = "Emissives"
@@ -142,7 +147,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 
 	state.CurrentAssetSymbol = data.SymbolToHex(t.TextureSymbol)
 	state.UpdateMainTexture(t.TextureSymbol)
-	
+
 	refreshPreview := func(colors [][3]float32) {
 		if len(colors) == 0 {
 			state.EmissivePreviewImage.Image = nil
@@ -177,17 +182,25 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	emissiveColorsEntry.SetText(colorStr.String())
 
 	emissiveColorsEntry.OnChanged = func(s string) {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		lines := strings.Split(s, "\n")
 		var newExtData []byte
 		var newColors [][3]float32
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
-			if line == "" { continue }
+			if line == "" {
+				continue
+			}
 			line = strings.TrimPrefix(line, "#")
-			if len(line) != 6 { continue }
+			if len(line) != 6 {
+				continue
+			}
 			b, err := hex.DecodeString(line)
-			if err != nil { continue }
+			if err != nil {
+				continue
+			}
 			newExtData = append(newExtData, make([]byte, 12)...)
 			off := len(newExtData) - 12
 			r, g, bl := float32(b[0])/255.0, float32(b[1])/255.0, float32(b[2])/255.0
@@ -213,10 +226,11 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.CategoryEditor.Refresh()
 
 	refreshPreview(t.Colors)
-	
+
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the emissives list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
 	query = strings.ToLower(query)
 	state.CategoryFiltered["Emissives"] = []int{}

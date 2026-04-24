@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -27,6 +26,7 @@ import (
 	"github.com/nfnt/resize"
 )
 
+// CEmote holds the editable fields for a emote cosmetic entry.
 type CEmote struct {
 	InternalName    string
 	DisplayName     string
@@ -39,6 +39,7 @@ type CEmote struct {
 	EmoteFrames []string
 }
 
+// ToCosmeticEntry converts a CEmote to a raw CosmeticEntry for serialization.
 func (c *CEmote) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	foo := data.CosmeticEntry{}
 	foo.CEntry = data.NewCDescriptor()
@@ -70,6 +71,7 @@ func (c *CEmote) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CEmote from a raw CosmeticEntry.
 func (c *CEmote) FromCosmeticEntry(d data.CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -101,6 +103,7 @@ var (
 	gifAnimCancel            context.CancelFunc
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Emotes tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Emotes..."
@@ -183,6 +186,7 @@ func startGifPreview(frames []image.Image) {
 	}()
 }
 
+// LoadToEditor populates the shared sidebar with the emote at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	if realIdx < 0 || realIdx >= len(state.CosmeticList.CosmeticEntries) {
 		return
@@ -422,7 +426,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 
 				ddsPath := filepath.Join(tempDir, fmt.Sprintf("frame_%d.dds", i))
 				cmd := exec.Command(texconvPath, "encode", pngPath, ddsPath)
-				cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+				cmd.SysProcAttr = data.HiddenProcAttr()
 				cmd.CombinedOutput()
 
 				ddsData, _ := os.ReadFile(ddsPath)
@@ -509,6 +513,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the emotes list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
 	query = strings.ToLower(query)
 	state.CategoryFiltered["Emotes"] = []int{}

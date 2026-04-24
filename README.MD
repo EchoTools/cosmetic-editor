@@ -26,10 +26,39 @@ Built-in integration with `evrFileTools` for seamless asset application:
 
 ## 🛠️ Installation & Setup
 
-1. **Extract**: Download and extract the latest release.
-2. **Tools**: Ensure `evrFileTools.exe` and `texconv.exe` are in the `settings` folder.
-3. **Data Path**: Upon first launch, select your EchoVR `_data` directory (e.g., `.../ready-at-dawn-echo-arena/_data/5932408047/rad15/win10`).
+### Pre-built release (recommended)
+
+1. **Download**: Grab the latest `EchoVR-Cosmetics-Editor.exe` from the [Releases](../../releases) page.
+2. **Tools**: Place `evrFileTools.exe` and `texconv.exe` in the `settings` folder next to the executable.
+3. **Data Path**: On first launch use **Settings** (⚙) to set your EchoVR `_data` directory (e.g. `.../ready-at-dawn-echo-arena/_data/5932408047/rad15/win10`).
 4. **Extract Assets**: Click **EXTRACT ASSETS** in the Action Bar to prepare the original textures for previewing.
+
+### Prerequisites (build from source)
+
+| Requirement | Version |
+|-------------|---------|
+| [Go](https://go.dev/dl/) | 1.25+ |
+| [Fyne CLI](https://docs.fyne.io/started/) (`go install fyne.io/fyne/v2/cmd/fyne@latest`) | latest |
+| GCC / MinGW (Windows) | any recent |
+
+### Build from source
+
+```bash
+# Clone the repository
+git clone https://github.com/EchoTools/EchoVR-Cosmetics-Editor.git
+cd EchoVR-Cosmetics-Editor
+
+# Download Go module dependencies
+go mod download
+
+# Quick development build (outputs a binary in the current directory)
+go build -o EchoVR-Cosmetics-Editor.exe .
+
+# Production package (embeds icon, sets Windows metadata — requires Fyne CLI)
+fyne package -os windows -icon icon.ico -name "EchoVR-Cosmetics-Editor"
+```
+
+The `fyne package` command produces a self-contained `EchoVR-Cosmetics-Editor.exe` with the application icon and Windows metadata baked in.  Place `evrFileTools.exe` and `texconv.exe` in the `Settings/` folder alongside the built executable before running.
 
 ## 📖 Usage Guide
 

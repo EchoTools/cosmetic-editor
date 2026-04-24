@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// CPattern holds the editable fields for a pattern cosmetic entry.
 type CPattern struct {
 	InternalName    string
 	DisplayName     string
@@ -22,6 +23,7 @@ type CPattern struct {
 	TextureSymbol   int64
 }
 
+// ToCosmeticEntry converts a CPattern to a raw CosmeticEntry for serialization.
 func (c *CPattern) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	foo := data.CosmeticEntry{}
 	foo.CEntry = data.NewCDescriptor()
@@ -37,6 +39,7 @@ func (c *CPattern) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CPattern from a raw CosmeticEntry.
 func (c *CPattern) FromCosmeticEntry(d data.CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -49,7 +52,7 @@ func (c *CPattern) FromCosmeticEntry(d data.CosmeticEntry) error {
 
 var (
 	patternList             *widget.List
-	searchEntry            *widget.Entry
+	searchEntry             *widget.Entry
 	patternPreviewImage     *canvas.Image
 	patternReplacementImage *canvas.Image
 	selectedPatternPngPath  string
@@ -57,6 +60,7 @@ var (
 	curPatternOrigPath      string
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Patterns tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Patterns..."
@@ -71,20 +75,28 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 		},
 	)
 	patternList.OnSelected = func(id widget.ListItemID) { LoadToEditor(state, state.CategoryFiltered["Patterns"][id]) }
-	patternPreviewImage = canvas.NewImageFromResource(nil); patternPreviewImage.FillMode = canvas.ImageFillContain; patternPreviewImage.SetMinSize(fyne.NewSize(0, 300))
-	patternReplacementImage = canvas.NewImageFromResource(nil); patternReplacementImage.FillMode = canvas.ImageFillContain; patternReplacementImage.SetMinSize(fyne.NewSize(0, 300))
+	patternPreviewImage = canvas.NewImageFromResource(nil)
+	patternPreviewImage.FillMode = canvas.ImageFillContain
+	patternPreviewImage.SetMinSize(fyne.NewSize(0, 300))
+	patternReplacementImage = canvas.NewImageFromResource(nil)
+	patternReplacementImage.FillMode = canvas.ImageFillContain
+	patternReplacementImage.SetMinSize(fyne.NewSize(0, 300))
 	return container.NewBorder(searchEntry, nil, nil, nil, patternList)
 }
 
+// LoadToEditor populates the shared sidebar with the pattern at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	if state.SelectedIndex != realIdx || state.SelectedCategory != "Patterns" {
 		state.CurrentReplacementPath = ""
 	}
-	state.SelectedIndex = realIdx; state.SelectedCategory = "Patterns"
+	state.SelectedIndex = realIdx
+	state.SelectedCategory = "Patterns"
 	state.RefreshCurrent = func(s *data.AppState) { LoadToEditor(s, realIdx) }
-	t := CPattern{}; t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
+	t := CPattern{}
+	t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
 	state.IsLoadingEntry = true
-	state.NameEntry.SetText(t.DisplayName); state.DescEntry.SetText(t.Description)
+	state.NameEntry.SetText(t.DisplayName)
+	state.DescEntry.SetText(t.Description)
 	state.ThumbIdEntry.SetText(data.SymbolToHex(t.ThumbnailSymbol))
 	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
@@ -96,9 +108,12 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			state.CurrentOriginalAssetPath = p
 		}
 	}
-	texEnt := widget.NewEntry(); texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
+	texEnt := widget.NewEntry()
+	texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
 	texEnt.OnChanged = func(s string) {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		state.CosmeticList.CosmeticEntries[state.SelectedIndex].CEntry.TextureSymbol = data.HexToSymbol(s)
 		state.CurrentAssetSymbol = s
 	}
@@ -131,11 +146,17 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the patterns list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
-	query = strings.ToLower(query); state.CategoryFiltered["Patterns"] = []int{}
+	query = strings.ToLower(query)
+	state.CategoryFiltered["Patterns"] = []int{}
 	for _, idx := range state.CategoryIndices["Patterns"] {
 		dName := strings.ToLower(string(bytes.TrimRight(state.CosmeticList.CosmeticEntries[idx].CEntry.DisplayNameString[:], "\x00")))
-		if query == "" || strings.Contains(dName, query) { state.CategoryFiltered["Patterns"] = append(state.CategoryFiltered["Patterns"], idx) }
+		if query == "" || strings.Contains(dName, query) {
+			state.CategoryFiltered["Patterns"] = append(state.CategoryFiltered["Patterns"], idx)
+		}
 	}
-	if patternList != nil { patternList.Refresh() }
+	if patternList != nil {
+		patternList.Refresh()
+	}
 }

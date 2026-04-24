@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// CTag holds the editable fields for a tag cosmetic entry.
 type CTag struct {
 	InternalName    string
 	DisplayName     string
@@ -22,6 +23,7 @@ type CTag struct {
 	TextureSymbol   int64
 }
 
+// ToCosmeticEntry converts a CTag to a raw CosmeticEntry for serialization.
 func (c *CTag) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	foo := data.CosmeticEntry{}
 	foo.CEntry = data.NewCDescriptor()
@@ -37,6 +39,7 @@ func (c *CTag) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CTag from a raw CosmeticEntry.
 func (c *CTag) FromCosmeticEntry(d data.CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -57,6 +60,7 @@ var (
 	curTagOrigPath      string
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Tags tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Tags..."
@@ -71,20 +75,28 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 		},
 	)
 	tagList.OnSelected = func(id widget.ListItemID) { LoadToEditor(state, state.CategoryFiltered["Tags"][id]) }
-	tagPreviewImage = canvas.NewImageFromResource(nil); tagPreviewImage.FillMode = canvas.ImageFillContain; tagPreviewImage.SetMinSize(fyne.NewSize(0, 300))
-	tagReplacementImage = canvas.NewImageFromResource(nil); tagReplacementImage.FillMode = canvas.ImageFillContain; tagReplacementImage.SetMinSize(fyne.NewSize(0, 300))
+	tagPreviewImage = canvas.NewImageFromResource(nil)
+	tagPreviewImage.FillMode = canvas.ImageFillContain
+	tagPreviewImage.SetMinSize(fyne.NewSize(0, 300))
+	tagReplacementImage = canvas.NewImageFromResource(nil)
+	tagReplacementImage.FillMode = canvas.ImageFillContain
+	tagReplacementImage.SetMinSize(fyne.NewSize(0, 300))
 	return container.NewBorder(searchEntry, nil, nil, nil, tagList)
 }
 
+// LoadToEditor populates the shared sidebar with the tag at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	if state.SelectedIndex != realIdx || state.SelectedCategory != "Tags" {
 		state.CurrentReplacementPath = ""
 	}
-	state.SelectedIndex = realIdx; state.SelectedCategory = "Tags"
+	state.SelectedIndex = realIdx
+	state.SelectedCategory = "Tags"
 	state.RefreshCurrent = func(s *data.AppState) { LoadToEditor(s, realIdx) }
-	t := CTag{}; t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
+	t := CTag{}
+	t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
 	state.IsLoadingEntry = true
-	state.NameEntry.SetText(t.DisplayName); state.DescEntry.SetText(t.Description)
+	state.NameEntry.SetText(t.DisplayName)
+	state.DescEntry.SetText(t.Description)
 	state.ThumbIdEntry.SetText(data.SymbolToHex(t.ThumbnailSymbol))
 	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
@@ -96,9 +108,12 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			state.CurrentOriginalAssetPath = p
 		}
 	}
-	texEnt := widget.NewEntry(); texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
+	texEnt := widget.NewEntry()
+	texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
 	texEnt.OnChanged = func(s string) {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		state.CosmeticList.CosmeticEntries[state.SelectedIndex].CEntry.TextureSymbol = data.HexToSymbol(s)
 		state.CurrentAssetSymbol = s
 	}
@@ -131,11 +146,17 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the tags list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
-	query = strings.ToLower(query); state.CategoryFiltered["Tags"] = []int{}
+	query = strings.ToLower(query)
+	state.CategoryFiltered["Tags"] = []int{}
 	for _, idx := range state.CategoryIndices["Tags"] {
 		dName := strings.ToLower(string(bytes.TrimRight(state.CosmeticList.CosmeticEntries[idx].CEntry.DisplayNameString[:], "\x00")))
-		if query == "" || strings.Contains(dName, query) { state.CategoryFiltered["Tags"] = append(state.CategoryFiltered["Tags"], idx) }
+		if query == "" || strings.Contains(dName, query) {
+			state.CategoryFiltered["Tags"] = append(state.CategoryFiltered["Tags"], idx)
+		}
 	}
-	if tagList != nil { tagList.Refresh() }
+	if tagList != nil {
+		tagList.Refresh()
+	}
 }

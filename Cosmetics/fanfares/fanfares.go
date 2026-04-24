@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// CFanfare holds the editable fields for a fanfare cosmetic entry.
 type CFanfare struct {
 	InternalName    string
 	DisplayName     string
@@ -23,6 +24,7 @@ type CFanfare struct {
 	Fanfare2ID      uint32
 }
 
+// ToCosmeticEntry converts a CFanfare to a raw CosmeticEntry for serialization.
 func (c *CFanfare) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	foo := data.CosmeticEntry{}
 	foo.CEntry = data.NewCDescriptor()
@@ -43,6 +45,7 @@ func (c *CFanfare) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CFanfare from a raw CosmeticEntry.
 func (c *CFanfare) FromCosmeticEntry(d data.CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -59,6 +62,7 @@ var (
 	searchEntry *widget.Entry
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Fanfares tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Fanfares..."
@@ -91,6 +95,7 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 	return content
 }
 
+// LoadToEditor populates the shared sidebar with the fanfare at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	state.SelectedIndex = realIdx
 	state.SelectedCategory = "Fanfares"
@@ -104,21 +109,27 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.NameEntry.SetText(t.DisplayName)
 	state.DescEntry.SetText(t.Description)
 	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
-	
+
 	if state.ThumbIdItem != nil {
 		state.ThumbIdItem.Widget.Show()
 	}
 	state.ThumbIdEntry.SetText(data.SymbolToHex(t.ThumbnailSymbol))
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
 
-	f1 := widget.NewEntry(); f1.SetText(fmt.Sprintf("%d", t.Fanfare1ID))
-	f2 := widget.NewEntry(); f2.SetText(fmt.Sprintf("%d", t.Fanfare2ID))
+	f1 := widget.NewEntry()
+	f1.SetText(fmt.Sprintf("%d", t.Fanfare1ID))
+	f2 := widget.NewEntry()
+	f2.SetText(fmt.Sprintf("%d", t.Fanfare2ID))
 
 	saveSounds := func() {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
-		v1, _ := strconv.ParseUint(f1.Text, 10, 32); entry.CEntry.WWiseSoundBankID1 = uint32(v1)
-		v2, _ := strconv.ParseUint(f2.Text, 10, 32); entry.CEntry.WWiseSoundBankID2 = uint32(v2)
+		v1, _ := strconv.ParseUint(f1.Text, 10, 32)
+		entry.CEntry.WWiseSoundBankID1 = uint32(v1)
+		v2, _ := strconv.ParseUint(f2.Text, 10, 32)
+		entry.CEntry.WWiseSoundBankID2 = uint32(v2)
 	}
 	f1.OnChanged = func(string) { saveSounds() }
 	f2.OnChanged = func(string) { saveSounds() }
@@ -144,6 +155,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the fanfares list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
 	query = strings.ToLower(query)
 	state.CategoryFiltered["Fanfares"] = []int{}

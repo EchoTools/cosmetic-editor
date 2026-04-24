@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// CDescriptor is the 664-byte binary layout of a single cosmetic entry in the game's data file.
 type CDescriptor struct { // Total size is 664 bytes
 	InternalNameSymbol  int64    // symbol for internal name, should match internalNameString
 	ConstSymbol         int64    // unsure what this is, seems to always be (0x41, 0x66, 0x6E, 0x06, 0xE6, 0x3C, 0x33, 0x4B)
@@ -82,6 +83,8 @@ type CDescriptor struct { // Total size is 664 bytes
 	AssetSymbol15 int64 // For bracers
 }
 
+// NewCDescriptor returns a CDescriptor initialised with the default field values
+// required by the game engine (constant symbol, default rarity, sentinel -1 asset symbols, etc.).
 func NewCDescriptor() CDescriptor {
 	foo := CDescriptor{}
 	foo.ConstSymbol = 5418741735304881729
@@ -118,6 +121,7 @@ func NewCDescriptor() CDescriptor {
 	return foo
 }
 
+// CosmeticEntry pairs a CDescriptor header with its variable-length extension data.
 type CosmeticEntry struct {
 	CEntry        CDescriptor
 	CEntryExtData []byte // unfixed size, see CEntry.ImageListingEntrySize / CEntry.OtherEntrySize
@@ -136,6 +140,7 @@ const (
 // abstract all non-cosmetic-specific data away in these structs
 // need functions to/from cosmeticEntry{} here. user should never have to manipulate cosmeticEntry directly, only through below structs & functions
 
+// CBooster represents a booster cosmetic item.
 type CBooster struct {
 	InternalName    string
 	DisplayName     string
@@ -144,7 +149,8 @@ type CBooster struct {
 	ThumbnailSymbol string
 }
 
-// i believe currency & xp boosts are handled individually by the websocket services, and have no specific data past a cosmetic entry
+// CCurrency represents an in-game currency cosmetic item.
+// Currency and XP boost values are managed by the game's websocket services.
 type CCurrency struct {
 	InternalName    string
 	DisplayName     string
@@ -153,6 +159,7 @@ type CCurrency struct {
 	ThumbnailSymbol string
 }
 
+// CXp_boost_individual represents an individual XP boost cosmetic item.
 type CXp_boost_individual struct {
 	InternalName    string
 	DisplayName     string
@@ -161,6 +168,7 @@ type CXp_boost_individual struct {
 	ThumbnailSymbol string
 }
 
+// CXp_boost_party represents a party XP boost cosmetic item.
 type CXp_boost_party struct {
 	InternalName    string
 	DisplayName     string
@@ -169,6 +177,7 @@ type CXp_boost_party struct {
 	ThumbnailSymbol string
 }
 
+// CBracer represents a bracer (wrist accessory) cosmetic item.
 type CBracer struct {
 	InternalName    string
 	DisplayName     string
@@ -177,6 +186,7 @@ type CBracer struct {
 	ThumbnailSymbol string
 }
 
+// CChassis represents a chassis (body) cosmetic item.
 type CChassis struct {
 	InternalName    string
 	DisplayName     string
@@ -186,6 +196,7 @@ type CChassis struct {
 	TextureSymbol   string
 }
 
+// ToCosmeticEntry converts a CChassis to a raw CosmeticEntry for serialization.
 func (c *CChassis) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor()
@@ -201,6 +212,7 @@ func (c *CChassis) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CChassis from a raw CosmeticEntry.
 func (c *CChassis) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -211,6 +223,7 @@ func (c *CChassis) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
+// CMedal represents a medal cosmetic item with an associated texture.
 type CMedal struct {
 	InternalName    string
 	DisplayName     string
@@ -220,6 +233,7 @@ type CMedal struct {
 	TextureSymbol   string
 }
 
+// ToCosmeticEntry converts a CMedal to a raw CosmeticEntry for serialization.
 func (c *CMedal) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor()
@@ -235,6 +249,7 @@ func (c *CMedal) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CMedal from a raw CosmeticEntry.
 func (c *CMedal) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -245,6 +260,7 @@ func (c *CMedal) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
+// CEmblem represents an emblem cosmetic item displayed on the player's chassis.
 type CEmblem struct {
 	InternalName    string
 	DisplayName     string
@@ -254,6 +270,7 @@ type CEmblem struct {
 	TextureSymbol   string
 }
 
+// ToCosmeticEntry converts a CEmblem to a raw CosmeticEntry for serialization.
 func (c *CEmblem) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor()
@@ -269,6 +286,7 @@ func (c *CEmblem) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CEmblem from a raw CosmeticEntry.
 func (c *CEmblem) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -279,6 +297,7 @@ func (c *CEmblem) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
+// CBanner represents a banner cosmetic with configurable medal/emblem positions.
 type CBanner struct {
 	InternalName    string
 	DisplayName     string
@@ -288,17 +307,18 @@ type CBanner struct {
 
 	TextureSymbol string
 
-	MedalXPos float32
-	MedalYPos float32
+	MedalXPos   float32
+	MedalYPos   float32
 	MedalHeight float32
 	MedalWidth  float32
 
-	EmblemXPos float32
-	EmblemYPos float32
+	EmblemXPos   float32
+	EmblemYPos   float32
 	EmblemHeight float32
 	EmblemWidth  float32
 }
 
+// ToCosmeticEntry converts a CBanner to a raw CosmeticEntry for serialization.
 func (c *CBanner) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor() // init default values
@@ -329,6 +349,7 @@ func (c *CBanner) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CBanner from a raw CosmeticEntry.
 func (c *CBanner) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -350,6 +371,7 @@ func (c *CBanner) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
+// CDecal represents a decal cosmetic item.
 type CDecal struct {
 	InternalName    string
 	DisplayName     string
@@ -359,6 +381,7 @@ type CDecal struct {
 	TextureSymbol   string
 }
 
+// ToCosmeticEntry converts a CDecal to a raw CosmeticEntry for serialization.
 func (c *CDecal) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor()
@@ -374,6 +397,7 @@ func (c *CDecal) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CDecal from a raw CosmeticEntry.
 func (c *CDecal) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -384,6 +408,7 @@ func (c *CDecal) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
+// CTag represents a player tag cosmetic item.
 type CTag struct {
 	InternalName    string
 	DisplayName     string
@@ -393,6 +418,7 @@ type CTag struct {
 	TextureSymbol   string
 }
 
+// ToCosmeticEntry converts a CTag to a raw CosmeticEntry for serialization.
 func (c *CTag) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor()
@@ -408,6 +434,7 @@ func (c *CTag) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CTag from a raw CosmeticEntry.
 func (c *CTag) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -418,6 +445,7 @@ func (c *CTag) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
+// CPip represents a pip (rank indicator) cosmetic item.
 type CPip struct {
 	InternalName    string
 	DisplayName     string
@@ -427,6 +455,7 @@ type CPip struct {
 	TextureSymbol   string
 }
 
+// ToCosmeticEntry converts a CPip to a raw CosmeticEntry for serialization.
 func (c *CPip) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor()
@@ -442,6 +471,7 @@ func (c *CPip) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CPip from a raw CosmeticEntry.
 func (c *CPip) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -452,6 +482,7 @@ func (c *CPip) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
+// CDecalborder represents a decal border cosmetic item.
 type CDecalborder struct {
 	InternalName    string
 	DisplayName     string
@@ -460,6 +491,7 @@ type CDecalborder struct {
 	ThumbnailSymbol string
 }
 
+// CGoal_fx represents a goal effect cosmetic item.
 type CGoal_fx struct {
 	InternalName    string
 	DisplayName     string
@@ -471,8 +503,8 @@ type CGoal_fx struct {
 	AssetSymbol2 string // in assets, soundbank pointer(?) this file has the soundbank typesymbol:namesymbol at byte 8
 }
 
-// RGB colors stored as float32 values between 0.0 and 1.0
-// max number of colors to cycle through hasn't been checked, 3 is highest seen in official emissives
+// CEmissive represents an emissive cosmetic with a scrolling texture and one or more gradient colors.
+// Colors are stored as float32 RGB values in the range [0.0, 1.0].
 type CEmissive struct {
 	InternalName    string
 	DisplayName     string
@@ -486,6 +518,7 @@ type CEmissive struct {
 	Colors [][3]float32
 }
 
+// ToCosmeticEntry converts a CEmissive to a raw CosmeticEntry for serialization.
 func (c *CEmissive) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor() // init default values
@@ -523,6 +556,7 @@ func (c *CEmissive) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CEmissive from a raw CosmeticEntry.
 func (c *CEmissive) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -549,6 +583,7 @@ func (c *CEmissive) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
+// CEmote represents an animated emote cosmetic. Frames are stored as symbol hex strings in ExtData.
 type CEmote struct {
 	InternalName    string
 	DisplayName     string
@@ -561,6 +596,7 @@ type CEmote struct {
 	EmoteFrames []string // stored in ExtData
 }
 
+// ToCosmeticEntry converts a CEmote to a raw CosmeticEntry for serialization.
 func (c *CEmote) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor() // init default values
@@ -598,6 +634,7 @@ func (c *CEmote) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CEmote from a raw CosmeticEntry.
 func (c *CEmote) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -617,6 +654,7 @@ func (c *CEmote) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
+// CPattern represents a chassis pattern cosmetic with an associated texture.
 type CPattern struct {
 	InternalName    string
 	DisplayName     string
@@ -627,6 +665,7 @@ type CPattern struct {
 	TextureSymbol string
 }
 
+// ToCosmeticEntry converts a CPattern to a raw CosmeticEntry for serialization.
 func (c *CPattern) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor() // init default values
@@ -642,6 +681,7 @@ func (c *CPattern) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CPattern from a raw CosmeticEntry.
 func (c *CPattern) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -652,10 +692,8 @@ func (c *CPattern) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
-// each R, G, B value is stored as a float for some reason. i've only seen 0.15 to 0.96 range used in official tints. 0.0 to 1.0 works fine though.
-// i'm assuming they know something i don't, so i'd recommend sticking to official ranges
-// idk why but it's easy enough to convert from usual 0-255 rgb values, just  * / % 255
-// emissives pull their "Match Tint" color from PrimaryColor_R/G/B values it seems (verify)
+// CTint represents a tint cosmetic. Primary and secondary colors are stored as float32 RGB
+// values in ExtData (range 0.0–1.0; official tints typically use 0.15–0.96).
 type CTint struct {
 	InternalName    string
 	DisplayName     string
@@ -671,6 +709,7 @@ type CTint struct {
 	SecondaryColor_B float32 // stored in ExtData
 }
 
+// ToCosmeticEntry converts a CTint to a raw CosmeticEntry for serialization.
 func (c *CTint) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor() // init default values
@@ -704,6 +743,7 @@ func (c *CTint) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CTint from a raw CosmeticEntry.
 func (c *CTint) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -726,6 +766,7 @@ func (c *CTint) FromCosmeticEntry(d CosmeticEntry) error {
 	return nil
 }
 
+// CTitle represents a title cosmetic displayed as the player's in-game nameplate text.
 type CTitle struct {
 	InternalName    string
 	DisplayName     string
@@ -736,6 +777,7 @@ type CTitle struct {
 	TitleString string
 }
 
+// ToCosmeticEntry converts a CTitle to a raw CosmeticEntry for serialization.
 func (c *CTitle) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo := CosmeticEntry{}
 	foo.CEntry = NewCDescriptor() // init default values
@@ -751,6 +793,7 @@ func (c *CTitle) ToCosmeticEntry() (CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CTitle from a raw CosmeticEntry.
 func (c *CTitle) FromCosmeticEntry(d CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -804,7 +847,6 @@ func (c *CFanfare) FromCosmeticEntry(d CosmeticEntry) error {
 	c.ThumbnailSymbol = SymbolToHex(d.CEntry.ThumbnailSymbol)
 	return nil
 }
-
 
 //func FromCosmeticEntryCommon[d cosmeticEntry, c *CTitle | *CBooster | *CCurrency | *CXp_boost_individual | *CXp_boost_party | *CBracer | *CChassis | *CMedal | *CBanner | *CDecal | *CTag | *CPip | *CDecalborder | *CGoal_fx] (error) {
 //
