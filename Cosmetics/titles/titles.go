@@ -99,7 +99,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.NameEntry.SetText(t.DisplayName)
 	state.DescEntry.SetText(t.Description)
 	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
-	
+
 	// Hide Thumbnail ID for Titles
 	if state.ThumbIdItem != nil {
 		state.ThumbIdItem.Widget.Hide()
@@ -109,7 +109,9 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	titleEntry := widget.NewEntry()
 	titleEntry.SetText(t.TitleString)
 	titleEntry.OnChanged = func(s string) {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
 		copy(entry.CEntry.TitleString[:], []byte(s))
 	}
@@ -118,7 +120,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 		widget.NewForm(widget.NewFormItem("Title Text", titleEntry)),
 	}
 	state.CategoryEditor.Refresh()
-	
+
 	state.IsLoadingEntry = false
 }
 

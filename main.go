@@ -3,6 +3,8 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,12 +13,12 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
-	"image/color"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"image/color"
 
 	"evrCosmeticResearch/Cosmetics/banners"
 	"evrCosmeticResearch/Cosmetics/decals"
@@ -110,7 +112,9 @@ func main() {
 	state.DescEntry = widget.NewEntry()
 	state.ThumbIdEntry = widget.NewEntry()
 	state.RaritySelect = widget.NewSelect(rarityOptions, func(s string) {
-		if state.SelectedIndex == -1 || state.IsLoadingEntry { return }
+		if state.SelectedIndex == -1 || state.IsLoadingEntry {
+			return
+		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
 		entry.CEntry.RaritySymbol = state.GetRaritySymbol(s)
 	})
@@ -126,17 +130,23 @@ func main() {
 
 	// Listeners
 	state.NameEntry.OnChanged = func(s string) {
-		if state.SelectedIndex == -1 || state.IsLoadingEntry { return }
+		if state.SelectedIndex == -1 || state.IsLoadingEntry {
+			return
+		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
 		copy(entry.CEntry.DisplayNameString[:], []byte(s))
 	}
 	state.DescEntry.OnChanged = func(s string) {
-		if state.SelectedIndex == -1 || state.IsLoadingEntry { return }
+		if state.SelectedIndex == -1 || state.IsLoadingEntry {
+			return
+		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
 		copy(entry.CEntry.DescriptionString[:], []byte(s))
 	}
 	state.ThumbIdEntry.OnChanged = func(s string) {
-		if state.SelectedIndex == -1 || state.IsLoadingEntry { return }
+		if state.SelectedIndex == -1 || state.IsLoadingEntry {
+			return
+		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
 		entry.CEntry.ThumbnailSymbol = data.HexToSymbol(s)
 	}
@@ -196,7 +206,7 @@ func main() {
 		showThumbCard := false
 		showTextureCard := false
 		showThumbImage := true
-		
+
 		state.EmissivePreviewLabel.Hide()
 		state.EmissivePreviewWrapper.Hide()
 		state.GenThumbBtn.Hide()
@@ -225,18 +235,36 @@ func main() {
 			state.ThumbIdItem.Widget.Hide()
 		}
 
-		if showThumbCard { state.ThumbnailCard.Show() } else { state.ThumbnailCard.Hide() }
-		if showTextureCard { state.MainPreviewCard.Show() } else { state.MainPreviewCard.Hide() }
-		
-		if showThumbImage { state.ThumbImage.Show() } else { state.ThumbImage.Hide() }
+		if showThumbCard {
+			state.ThumbnailCard.Show()
+		} else {
+			state.ThumbnailCard.Hide()
+		}
+		if showTextureCard {
+			state.MainPreviewCard.Show()
+		} else {
+			state.MainPreviewCard.Hide()
+		}
+
+		if showThumbImage {
+			state.ThumbImage.Show()
+		} else {
+			state.ThumbImage.Hide()
+		}
 
 		if idx >= 0 && idx <= 4 {
-			if state.PreviewTintContainer != nil { state.PreviewTintContainer.Hide() }
+			if state.PreviewTintContainer != nil {
+				state.PreviewTintContainer.Hide()
+			}
 		} else {
-			if state.PreviewTintContainer != nil { state.PreviewTintContainer.Show() }
+			if state.PreviewTintContainer != nil {
+				state.PreviewTintContainer.Show()
+			}
 		}
-		
-		if state.PreviewTintContainer != nil { state.PreviewTintContainer.Refresh() }
+
+		if state.PreviewTintContainer != nil {
+			state.PreviewTintContainer.Refresh()
+		}
 		if state.Window != nil && state.Window.Content() != nil {
 			state.Window.Content().Refresh()
 		}
@@ -272,9 +300,12 @@ func main() {
 	btnRepack.Importance = widget.HighImportance
 
 	btnSettings := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
-		extractedPath := widget.NewEntry(); extractedPath.SetText(state.Settings.ExtractedPath)
-		echoPath := widget.NewEntry(); echoPath.SetText(state.Settings.EchoVRDataPath)
-		cachePath := widget.NewEntry(); cachePath.SetText(state.Settings.TextureCachePath)
+		extractedPath := widget.NewEntry()
+		extractedPath.SetText(state.Settings.ExtractedPath)
+		echoPath := widget.NewEntry()
+		echoPath.SetText(state.Settings.EchoVRDataPath)
+		cachePath := widget.NewEntry()
+		cachePath.SetText(state.Settings.TextureCachePath)
 
 		makeBrowseItem := func(entry *widget.Entry) fyne.CanvasObject {
 			browseBtn := widget.NewButton("Browse", func() {
@@ -310,7 +341,10 @@ func main() {
 		if err == nil && path != "" {
 			dataBytes, _ := os.ReadFile(path)
 			cList, err := data.BytesToCosmeticList(dataBytes)
-			if err != nil { dialog.ShowError(err, w); return }
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
 			state.CosmeticList = cList
 			state.RefreshIndices()
 			state.ClearUI()
@@ -318,14 +352,18 @@ func main() {
 	})
 
 	btnChooseMode := widget.NewButton(state.Settings.Mode, func() {
-		if state.Settings.Mode == "PCVR" { state.Settings.Mode = "Quest" } else { state.Settings.Mode = "PCVR" }
+		if state.Settings.Mode == "PCVR" {
+			state.Settings.Mode = "Quest"
+		} else {
+			state.Settings.Mode = "PCVR"
+		}
 		saveSettings()
 		w.SetTitle("Cosmetics Editor - " + state.Settings.Mode)
 		w.Content().Refresh()
 	})
 
-	actionBar := container.NewBorder(nil, nil, nil, 
-		container.NewHBox(btnChooseMode, btnLoadFile, btnSettings), 
+	actionBar := container.NewBorder(nil, nil, nil,
+		container.NewHBox(btnChooseMode, btnLoadFile, btnSettings),
 		container.NewVBox(btnExtractAssets, btnRepack),
 	)
 
@@ -347,9 +385,8 @@ func main() {
 	state.EmissivePreviewWrapper.Hide()
 	state.EmissivePreviewLabel.Hide()
 
-	_ = widget.NewFormItem("Thumbnail ID", state.ThumbIdEntry)
 	state.ThumbIdItem = widget.NewFormItem("Thumbnail ID", state.ThumbIdEntry)
-	
+
 	state.ThumbnailCard = data.NewCard("Preview", container.NewVBox(
 		container.NewCenter(state.ThumbImage),
 		state.EmissivePreviewLabel,
@@ -376,15 +413,20 @@ func main() {
 
 	// Footer & Main Splitting
 	state.PreviewTintCheck = widget.NewCheck("Preview with Tint", func(b bool) {
-		if state.RefreshCurrent != nil { state.RefreshCurrent(state) }
+		if state.RefreshCurrent != nil {
+			state.RefreshCurrent(state)
+		}
 	})
 	state.PreviewTintSelect = widget.NewSelect([]string{}, func(s string) {
 		for i, idx := range state.CategoryIndices["Tints"] {
 			if strings.TrimRight(string(state.CosmeticList.CosmeticEntries[idx].CEntry.DisplayNameString[:]), "\x00") == s {
-				state.PreviewTintIndex = i; break
+				state.PreviewTintIndex = i
+				break
 			}
 		}
-		if state.RefreshCurrent != nil { state.RefreshCurrent(state) }
+		if state.RefreshCurrent != nil {
+			state.RefreshCurrent(state)
+		}
 	})
 	state.PreviewTintContainer = container.NewVBox(state.PreviewTintCheck, state.PreviewTintSelect)
 	state.PreviewTintContainer.Hide()
@@ -406,7 +448,9 @@ func main() {
 		if err := state.HandleSave(dbPath); err == nil {
 			dialog.ShowInformation("Success", "File saved correctly to:\n"+dbPath, w)
 			// Still save to temp for safety
-			state.HandleSave(tempFilePath)
+			if err := state.HandleSave(tempFilePath); err != nil {
+				dialog.ShowError(fmt.Errorf("autosave failed: %w", err), w)
+			}
 		} else {
 			dialog.ShowError(err, w)
 		}
@@ -426,7 +470,7 @@ func main() {
 	// Initial Load logic
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		
+
 		// Priority: 1. Input Database, 2. Autosave, 3. Embedded Original
 		var b []byte
 		inputDir := data.InputDirNamePC
@@ -437,7 +481,7 @@ func main() {
 			tintFolder = data.TintFolderQuest
 			tintFile = data.TintFileNameQuest
 		}
-		
+
 		dbPath := filepath.Join(data.GetSettingsDir(), inputDir, tintFolder, tintFile)
 		if data, err := os.ReadFile(dbPath); err == nil {
 			b = data
@@ -449,8 +493,11 @@ func main() {
 			b = embeddedOriginal
 			state.StatusLabel.SetText("Loaded default database.")
 		}
-		
-		cList, _ := data.BytesToCosmeticList(b)
+
+		cList, err := data.BytesToCosmeticList(b)
+		if err != nil {
+			fyne.Do(func() { state.StatusLabel.SetText("Failed to parse cosmetic database: " + err.Error()) })
+		}
 		state.CosmeticList = cList
 		state.RefreshIndices()
 		state.ClearUI()
@@ -462,7 +509,11 @@ func main() {
 
 func loadSettings() {
 	file, err := os.ReadFile(settingsFile)
-	if err == nil { json.Unmarshal(file, &state.Settings) }
+	if err == nil {
+		if err := json.Unmarshal(file, &state.Settings); err != nil {
+			log.Printf("loadSettings: failed to parse settings: %v", err)
+		}
+	}
 }
 
 func saveSettings() {

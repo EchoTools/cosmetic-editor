@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -422,7 +421,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 
 				ddsPath := filepath.Join(tempDir, fmt.Sprintf("frame_%d.dds", i))
 				cmd := exec.Command(texconvPath, "encode", pngPath, ddsPath)
-				cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+				cmd.SysProcAttr = data.HiddenProcAttr()
 				cmd.CombinedOutput()
 
 				ddsData, _ := os.ReadFile(ddsPath)

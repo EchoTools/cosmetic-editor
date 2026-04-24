@@ -49,7 +49,7 @@ func (c *CPattern) FromCosmeticEntry(d data.CosmeticEntry) error {
 
 var (
 	patternList             *widget.List
-	searchEntry            *widget.Entry
+	searchEntry             *widget.Entry
 	patternPreviewImage     *canvas.Image
 	patternReplacementImage *canvas.Image
 	selectedPatternPngPath  string
@@ -71,8 +71,12 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 		},
 	)
 	patternList.OnSelected = func(id widget.ListItemID) { LoadToEditor(state, state.CategoryFiltered["Patterns"][id]) }
-	patternPreviewImage = canvas.NewImageFromResource(nil); patternPreviewImage.FillMode = canvas.ImageFillContain; patternPreviewImage.SetMinSize(fyne.NewSize(0, 300))
-	patternReplacementImage = canvas.NewImageFromResource(nil); patternReplacementImage.FillMode = canvas.ImageFillContain; patternReplacementImage.SetMinSize(fyne.NewSize(0, 300))
+	patternPreviewImage = canvas.NewImageFromResource(nil)
+	patternPreviewImage.FillMode = canvas.ImageFillContain
+	patternPreviewImage.SetMinSize(fyne.NewSize(0, 300))
+	patternReplacementImage = canvas.NewImageFromResource(nil)
+	patternReplacementImage.FillMode = canvas.ImageFillContain
+	patternReplacementImage.SetMinSize(fyne.NewSize(0, 300))
 	return container.NewBorder(searchEntry, nil, nil, nil, patternList)
 }
 
@@ -80,11 +84,14 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	if state.SelectedIndex != realIdx || state.SelectedCategory != "Patterns" {
 		state.CurrentReplacementPath = ""
 	}
-	state.SelectedIndex = realIdx; state.SelectedCategory = "Patterns"
+	state.SelectedIndex = realIdx
+	state.SelectedCategory = "Patterns"
 	state.RefreshCurrent = func(s *data.AppState) { LoadToEditor(s, realIdx) }
-	t := CPattern{}; t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
+	t := CPattern{}
+	t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
 	state.IsLoadingEntry = true
-	state.NameEntry.SetText(t.DisplayName); state.DescEntry.SetText(t.Description)
+	state.NameEntry.SetText(t.DisplayName)
+	state.DescEntry.SetText(t.Description)
 	state.ThumbIdEntry.SetText(data.SymbolToHex(t.ThumbnailSymbol))
 	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
@@ -96,9 +103,12 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			state.CurrentOriginalAssetPath = p
 		}
 	}
-	texEnt := widget.NewEntry(); texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
+	texEnt := widget.NewEntry()
+	texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
 	texEnt.OnChanged = func(s string) {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		state.CosmeticList.CosmeticEntries[state.SelectedIndex].CEntry.TextureSymbol = data.HexToSymbol(s)
 		state.CurrentAssetSymbol = s
 	}
@@ -132,10 +142,15 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 }
 
 func RefreshFilter(state *data.AppState, query string) {
-	query = strings.ToLower(query); state.CategoryFiltered["Patterns"] = []int{}
+	query = strings.ToLower(query)
+	state.CategoryFiltered["Patterns"] = []int{}
 	for _, idx := range state.CategoryIndices["Patterns"] {
 		dName := strings.ToLower(string(bytes.TrimRight(state.CosmeticList.CosmeticEntries[idx].CEntry.DisplayNameString[:], "\x00")))
-		if query == "" || strings.Contains(dName, query) { state.CategoryFiltered["Patterns"] = append(state.CategoryFiltered["Patterns"], idx) }
+		if query == "" || strings.Contains(dName, query) {
+			state.CategoryFiltered["Patterns"] = append(state.CategoryFiltered["Patterns"], idx)
+		}
 	}
-	if patternList != nil { patternList.Refresh() }
+	if patternList != nil {
+		patternList.Refresh()
+	}
 }

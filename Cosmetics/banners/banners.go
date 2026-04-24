@@ -23,14 +23,14 @@ type CBanner struct {
 	ThumbnailSymbol int64
 	TextureSymbol   int64
 
-	MedalXPos     float32
-	MedalYPos     float32
-	MedalHeight   float32
-	MedalWidth    float32
-	EmblemXPos    float32
-	EmblemYPos    float32
-	EmblemHeight  float32
-	EmblemWidth   float32
+	MedalXPos    float32
+	MedalYPos    float32
+	MedalHeight  float32
+	MedalWidth   float32
+	EmblemXPos   float32
+	EmblemYPos   float32
+	EmblemHeight float32
+	EmblemWidth  float32
 }
 
 func (c *CBanner) ToCosmeticEntry() (data.CosmeticEntry, error) {
@@ -85,12 +85,12 @@ var (
 	searchEntry *widget.Entry
 
 	// Local Preview Widgets
-	bannerPreviewImage      *canvas.Image
-	bannerReplacementImage  *canvas.Image
-	selectedBannerPngPath   string
-	replaceBannerBtn        *widget.Button
-	curBannerOrigPath       string
-	curBannerReplPath       string
+	bannerPreviewImage     *canvas.Image
+	bannerReplacementImage *canvas.Image
+	selectedBannerPngPath  string
+	replaceBannerBtn       *widget.Button
+	curBannerOrigPath      string
+	curBannerReplPath      string
 )
 
 func SetupUI(state *data.AppState) fyne.CanvasObject {
@@ -155,7 +155,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
 
 	state.CurrentAssetSymbol = data.SymbolToHex(t.TextureSymbol)
-	
+
 	// Track paths for replacement grid
 	curBannerOrigPath = ""
 	if t.TextureSymbol != 0 {
@@ -167,31 +167,50 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	}
 
 	// POSITIONING UI
-	mx := widget.NewEntry(); mx.SetText(fmt.Sprintf("%.2f", t.MedalXPos))
-	my := widget.NewEntry(); my.SetText(fmt.Sprintf("%.2f", t.MedalYPos))
-	mh := widget.NewEntry(); mh.SetText(fmt.Sprintf("%.2f", t.MedalHeight))
-	mw := widget.NewEntry(); mw.SetText(fmt.Sprintf("%.2f", t.MedalWidth))
+	mx := widget.NewEntry()
+	mx.SetText(fmt.Sprintf("%.2f", t.MedalXPos))
+	my := widget.NewEntry()
+	my.SetText(fmt.Sprintf("%.2f", t.MedalYPos))
+	mh := widget.NewEntry()
+	mh.SetText(fmt.Sprintf("%.2f", t.MedalHeight))
+	mw := widget.NewEntry()
+	mw.SetText(fmt.Sprintf("%.2f", t.MedalWidth))
 
-	ex := widget.NewEntry(); ex.SetText(fmt.Sprintf("%.2f", t.EmblemXPos))
-	ey := widget.NewEntry(); ey.SetText(fmt.Sprintf("%.2f", t.EmblemYPos))
-	eh := widget.NewEntry(); eh.SetText(fmt.Sprintf("%.2f", t.EmblemHeight))
-	ew := widget.NewEntry(); ew.SetText(fmt.Sprintf("%.2f", t.EmblemWidth))
+	ex := widget.NewEntry()
+	ex.SetText(fmt.Sprintf("%.2f", t.EmblemXPos))
+	ey := widget.NewEntry()
+	ey.SetText(fmt.Sprintf("%.2f", t.EmblemYPos))
+	eh := widget.NewEntry()
+	eh.SetText(fmt.Sprintf("%.2f", t.EmblemHeight))
+	ew := widget.NewEntry()
+	ew.SetText(fmt.Sprintf("%.2f", t.EmblemWidth))
 
-	texEnt := widget.NewEntry(); texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
+	texEnt := widget.NewEntry()
+	texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
 
 	saveChanges := func() {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
-		
+
 		entry.CEntry.TextureSymbol = data.HexToSymbol(texEnt.Text)
-		f, _ := strconv.ParseFloat(mx.Text, 32); entry.CEntry.BannerMedalXPos = float32(f)
-		f, _ = strconv.ParseFloat(my.Text, 32); entry.CEntry.BannerMedalYPos = float32(f)
-		f, _ = strconv.ParseFloat(mh.Text, 32); entry.CEntry.BannerMedalHeight = float32(f)
-		f, _ = strconv.ParseFloat(mw.Text, 32); entry.CEntry.BannerMedalWidth = float32(f)
-		f, _ = strconv.ParseFloat(ex.Text, 32); entry.CEntry.BannerEmblemXPos = float32(f)
-		f, _ = strconv.ParseFloat(ey.Text, 32); entry.CEntry.BannerEmblemYPos = float32(f)
-		f, _ = strconv.ParseFloat(eh.Text, 32); entry.CEntry.BannerEmblemHeight = float32(f)
-		f, _ = strconv.ParseFloat(ew.Text, 32); entry.CEntry.BannerEmblemWidth = float32(f)
+		f, _ := strconv.ParseFloat(mx.Text, 32)
+		entry.CEntry.BannerMedalXPos = float32(f)
+		f, _ = strconv.ParseFloat(my.Text, 32)
+		entry.CEntry.BannerMedalYPos = float32(f)
+		f, _ = strconv.ParseFloat(mh.Text, 32)
+		entry.CEntry.BannerMedalHeight = float32(f)
+		f, _ = strconv.ParseFloat(mw.Text, 32)
+		entry.CEntry.BannerMedalWidth = float32(f)
+		f, _ = strconv.ParseFloat(ex.Text, 32)
+		entry.CEntry.BannerEmblemXPos = float32(f)
+		f, _ = strconv.ParseFloat(ey.Text, 32)
+		entry.CEntry.BannerEmblemYPos = float32(f)
+		f, _ = strconv.ParseFloat(eh.Text, 32)
+		entry.CEntry.BannerEmblemHeight = float32(f)
+		f, _ = strconv.ParseFloat(ew.Text, 32)
+		entry.CEntry.BannerEmblemWidth = float32(f)
 	}
 
 	mx.OnChanged = func(string) { saveChanges() }
