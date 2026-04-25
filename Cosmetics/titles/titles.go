@@ -2,7 +2,7 @@ package titles
 
 import (
 	"bytes"
-	"evrCosmeticResearch/Data"
+	"github.com/EchoTools/cosmetic-editor/Data"
 	"strings"
 
 	"fyne.io/fyne/v2"

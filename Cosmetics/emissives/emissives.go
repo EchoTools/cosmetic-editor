@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"evrCosmeticResearch/Data"
+	"github.com/EchoTools/cosmetic-editor/Data"
 	"fmt"
 	"math"
 	"strings"
