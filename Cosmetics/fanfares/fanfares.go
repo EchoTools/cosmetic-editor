@@ -2,7 +2,7 @@ package fanfares
 
 import (
 	"bytes"
-	"evrCosmeticResearch/Data"
+	"github.com/EchoTools/cosmetic-editor/Data"
 	"fmt"
 	"strconv"
 	"strings"

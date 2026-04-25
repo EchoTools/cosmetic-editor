@@ -2,7 +2,7 @@ package emblems
 
 import (
 	"bytes"
-	"evrCosmeticResearch/Data"
+	"github.com/EchoTools/cosmetic-editor/Data"
 	"os"
 	"path/filepath"
 	"strings"

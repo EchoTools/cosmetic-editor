@@ -1,4 +1,4 @@
-module evrCosmeticResearch
+module github.com/EchoTools/cosmetic-editor
 
 go 1.25.0
 

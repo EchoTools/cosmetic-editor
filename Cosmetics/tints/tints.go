@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
-	data "evrCosmeticResearch/Data"
+	data "github.com/EchoTools/cosmetic-editor/Data"
 	"fmt"
 	"math"
 	"strings"

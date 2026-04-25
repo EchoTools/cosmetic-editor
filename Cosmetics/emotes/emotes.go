@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	data "evrCosmeticResearch/Data"
+	data "github.com/EchoTools/cosmetic-editor/Data"
 	"fmt"
 	"image"
 	"image/gif"
