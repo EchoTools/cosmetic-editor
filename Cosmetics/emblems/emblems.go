@@ -21,6 +21,7 @@ var (
 	replaceEmblemBtn       *widget.Button
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Emblems tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Emblems..."
@@ -44,6 +45,7 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 	return container.NewBorder(searchEntry, nil, nil, nil, emblemList)
 }
 
+// LoadToEditor populates the shared sidebar with the emblem at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	if state.SelectedIndex != realIdx || state.SelectedCategory != "Emblems" {
 		state.CurrentReplacementPath = ""
@@ -108,6 +110,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the emblem list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
 	query = strings.ToLower(query)
 	state.CategoryFiltered["Emblems"] = []int{}

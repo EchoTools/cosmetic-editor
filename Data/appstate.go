@@ -169,6 +169,7 @@ func (s *AppState) ClearUI() {
 	s.IsLoadingEntry = false
 }
 
+// NewAppState creates and initialises an AppState for the given Fyne application and window.
 func NewAppState(a fyne.App, w fyne.Window) *AppState {
 	return &AppState{
 		App:              a,
@@ -180,7 +181,7 @@ func NewAppState(a fyne.App, w fyne.Window) *AppState {
 	}
 }
 
-// AppSettings moved from main.go
+// AppSettings holds user-configurable paths and options persisted in settings.json.
 type AppSettings struct {
 	EchoVRDataPath   string `json:"echovr_data_path"`
 	ExtractedPath    string `json:"extracted_path"`

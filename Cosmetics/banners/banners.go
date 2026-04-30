@@ -15,6 +15,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// CBanner holds the editable fields for a banner cosmetic entry.
 type CBanner struct {
 	InternalName    string
 	DisplayName     string
@@ -33,6 +34,7 @@ type CBanner struct {
 	EmblemWidth  float32
 }
 
+// ToCosmeticEntry converts a CBanner to a raw CosmeticEntry for serialization.
 func (c *CBanner) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	foo := data.CosmeticEntry{}
 	foo.CEntry = data.NewCDescriptor()
@@ -61,6 +63,7 @@ func (c *CBanner) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CBanner from a raw CosmeticEntry.
 func (c *CBanner) FromCosmeticEntry(d data.CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -93,6 +96,7 @@ var (
 	curBannerReplPath      string
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Banners tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Banners..."
@@ -134,6 +138,7 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 	return content
 }
 
+// LoadToEditor populates the shared sidebar with the banner at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	if state.SelectedIndex != realIdx || state.SelectedCategory != "Banners" {
 		state.CurrentReplacementPath = ""
@@ -277,6 +282,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the banners list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
 	query = strings.ToLower(query)
 	state.CategoryFiltered["Banners"] = []int{}

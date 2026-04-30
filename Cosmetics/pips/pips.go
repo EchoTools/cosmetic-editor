@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// CPip holds the editable fields for a pip cosmetic entry.
 type CPip struct {
 	InternalName    string
 	DisplayName     string
@@ -22,6 +23,7 @@ type CPip struct {
 	TextureSymbol   int64
 }
 
+// ToCosmeticEntry converts a CPip to a raw CosmeticEntry for serialization.
 func (c *CPip) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	foo := data.CosmeticEntry{}
 	foo.CEntry = data.NewCDescriptor()
@@ -37,6 +39,7 @@ func (c *CPip) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CPip from a raw CosmeticEntry.
 func (c *CPip) FromCosmeticEntry(d data.CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -57,6 +60,7 @@ var (
 	curPipOrigPath      string
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Pips tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Pips..."
@@ -80,6 +84,7 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 	return container.NewBorder(searchEntry, nil, nil, nil, pipList)
 }
 
+// LoadToEditor populates the shared sidebar with the pip at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	if state.SelectedIndex != realIdx || state.SelectedCategory != "Pips" {
 		state.CurrentReplacementPath = ""
@@ -141,6 +146,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the pips list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
 	query = strings.ToLower(query)
 	state.CategoryFiltered["Pips"] = []int{}

@@ -21,6 +21,7 @@ var (
 	replaceDecalBtn       *widget.Button
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Decals tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Decals..."
@@ -44,6 +45,7 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 	return container.NewBorder(searchEntry, nil, nil, nil, decalList)
 }
 
+// LoadToEditor populates the shared sidebar with the decal at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	if state.SelectedIndex != realIdx || state.SelectedCategory != "Decals" {
 		state.CurrentReplacementPath = ""
@@ -108,6 +110,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the decal list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
 	query = strings.ToLower(query)
 	state.CategoryFiltered["Decals"] = []int{}

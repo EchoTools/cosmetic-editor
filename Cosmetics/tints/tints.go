@@ -14,6 +14,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// CTint holds the editable fields for a tint cosmetic entry.
 type CTint struct {
 	InternalName    string
 	DisplayName     string
@@ -29,6 +30,7 @@ type CTint struct {
 	SecondaryColor_B float32
 }
 
+// ToCosmeticEntry converts a CTint to a raw CosmeticEntry for serialization.
 func (c *CTint) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	foo := data.CosmeticEntry{}
 	foo.CEntry = data.NewCDescriptor()
@@ -57,6 +59,7 @@ func (c *CTint) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CTint from a raw CosmeticEntry.
 func (c *CTint) FromCosmeticEntry(d data.CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -81,6 +84,7 @@ var (
 	searchEntry *widget.Entry
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Tints tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Tints..."
@@ -113,6 +117,7 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 	return content
 }
 
+// LoadToEditor populates the shared sidebar with the tint at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	state.SelectedIndex = realIdx
 	state.SelectedCategory = "Tints"
@@ -181,6 +186,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the tint list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
 	query = strings.ToLower(query)
 	state.CategoryFiltered["Tints"] = []int{}

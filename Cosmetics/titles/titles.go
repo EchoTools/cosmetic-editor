@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+// CTitle holds the editable fields for a title cosmetic entry.
 type CTitle struct {
 	InternalName    string
 	DisplayName     string
@@ -20,6 +21,7 @@ type CTitle struct {
 	TitleString string
 }
 
+// ToCosmeticEntry converts a CTitle to a raw CosmeticEntry for serialization.
 func (c *CTitle) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	foo := data.CosmeticEntry{}
 	foo.CEntry = data.NewCDescriptor()
@@ -39,6 +41,7 @@ func (c *CTitle) ToCosmeticEntry() (data.CosmeticEntry, error) {
 	return foo, nil
 }
 
+// FromCosmeticEntry populates a CTitle from a raw CosmeticEntry.
 func (c *CTitle) FromCosmeticEntry(d data.CosmeticEntry) error {
 	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
 	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
@@ -54,6 +57,7 @@ var (
 	searchEntry *widget.Entry
 )
 
+// SetupUI builds and returns the Fyne canvas object for the Titles tab.
 func SetupUI(state *data.AppState) fyne.CanvasObject {
 	searchEntry = widget.NewEntry()
 	searchEntry.PlaceHolder = "Search Titles..."
@@ -86,6 +90,7 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 	return content
 }
 
+// LoadToEditor populates the shared sidebar with the title at the given CosmeticList index.
 func LoadToEditor(state *data.AppState, realIdx int) {
 	state.SelectedIndex = realIdx
 	state.SelectedCategory = "Titles"
@@ -124,6 +129,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.IsLoadingEntry = false
 }
 
+// RefreshFilter re-filters the titles list to entries whose display name contains query.
 func RefreshFilter(state *data.AppState, query string) {
 	query = strings.ToLower(query)
 	state.CategoryFiltered["Titles"] = []int{}

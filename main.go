@@ -3,8 +3,6 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
-	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,19 +18,19 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"image/color"
 
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/banners"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/decals"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/emblems"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/emissives"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/emotes"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/fanfares"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/medals"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/patterns"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/pips"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/tags"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/tints"
-	"github.com/EchoTools/cosmetic-editor/Cosmetics/titles"
-	data "github.com/EchoTools/cosmetic-editor/Data"
+	"evrCosmeticResearch/Cosmetics/banners"
+	"evrCosmeticResearch/Cosmetics/decals"
+	"evrCosmeticResearch/Cosmetics/emblems"
+	"evrCosmeticResearch/Cosmetics/emissives"
+	"evrCosmeticResearch/Cosmetics/emotes"
+	"evrCosmeticResearch/Cosmetics/fanfares"
+	"evrCosmeticResearch/Cosmetics/medals"
+	"evrCosmeticResearch/Cosmetics/patterns"
+	"evrCosmeticResearch/Cosmetics/pips"
+	"evrCosmeticResearch/Cosmetics/tags"
+	"evrCosmeticResearch/Cosmetics/tints"
+	"evrCosmeticResearch/Cosmetics/titles"
+	data "evrCosmeticResearch/Data"
 )
 
 // --- EMBEDDED FILES ---
@@ -447,9 +445,9 @@ func main() {
 
 		if err := state.HandleSave(dbPath); err == nil {
 			dialog.ShowInformation("Success", "File saved correctly to:\n"+dbPath, w)
-			// Still save to temp for safety
+			// Still save to temp for safety; log failure but don't interrupt the success flow.
 			if err := state.HandleSave(tempFilePath); err != nil {
-				dialog.ShowError(fmt.Errorf("autosave failed: %w", err), w)
+				state.StatusLabel.SetText("Warning: autosave failed: " + err.Error())
 			}
 		} else {
 			dialog.ShowError(err, w)
@@ -496,7 +494,7 @@ func main() {
 
 		cList, err := data.BytesToCosmeticList(b)
 		if err != nil {
-			fyne.Do(func() { state.StatusLabel.SetText("Failed to parse cosmetic database: " + err.Error()) })
+			state.StatusLabel.SetText("Warning: failed to parse cosmetic data: " + err.Error())
 		}
 		state.CosmeticList = cList
 		state.RefreshIndices()
@@ -511,7 +509,7 @@ func loadSettings() {
 	file, err := os.ReadFile(settingsFile)
 	if err == nil {
 		if err := json.Unmarshal(file, &state.Settings); err != nil {
-			log.Printf("loadSettings: failed to parse settings: %v", err)
+			state.StatusLabel.SetText("Warning: failed to parse settings: " + err.Error())
 		}
 	}
 }
