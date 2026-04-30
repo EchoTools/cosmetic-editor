@@ -2,10 +2,30 @@ package data
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
+// hexFilenameRE matches a non-empty lowercase hex string (no path separators, no dots).
+var hexFilenameRE = regexp.MustCompile(`^[0-9a-f]+$`)
+
+// SafeHexFilename validates and normalises a string intended to be used as a
+// filename that should only contain hexadecimal digits.  It returns the
+// lower-cased hex string, or an error if the value is empty or contains any
+// non-hex characters (which would allow path traversal or injection).
+func SafeHexFilename(s string) (string, error) {
+	if s == "" {
+		return "", fmt.Errorf("hex filename must not be empty")
+	}
+	lower := strings.ToLower(s)
+	if !hexFilenameRE.MatchString(lower) {
+		return "", fmt.Errorf("invalid hex filename %q: must contain only hex digits [0-9a-f]", s)
+	}
+	return lower, nil
+}
+
+// Symbol is the EchoVR FNV-1a-derived 64-bit hash type used to uniquely identify assets and cosmetics.
 type Symbol uint64
 
 var symbolSeed [0x100]uint64 = generateSymbolSeed()
@@ -64,6 +84,8 @@ func generateSymbolSeed() [0x100]uint64 {
 	return seed
 }
 
+// ToSymbol converts a value to a Symbol. Strings are hashed using the game's symbol algorithm;
+// numeric types are cast directly. Passing an unsupported type panics.
 func ToSymbol(v any) Symbol {
 	// if it's a number, return it as an uint64
 	switch t := v.(type) {
@@ -108,6 +130,8 @@ func ToSymbol(v any) Symbol {
 	}
 }
 
+// HexToSymbol parses a lowercase hex string (without "0x" prefix) into a Symbol int64.
+// Returns -1 if the string is empty or cannot be parsed.
 func HexToSymbol(s string) int64 {
 	if s == "" {
 		return -1
@@ -119,6 +143,8 @@ func HexToSymbol(s string) int64 {
 	return int64(v)
 }
 
+// SymbolToHex formats a Symbol int64 as a lowercase hex string without "0x" prefix.
+// Returns an empty string for -1 (null symbol).
 func SymbolToHex(v int64) string {
 	if v == -1 {
 		return ""
