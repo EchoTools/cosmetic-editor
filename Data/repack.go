@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -66,7 +65,7 @@ func RunExtract(state *AppState, echoDataPath string, exports string) error {
 		"-export", exports,
 		"-force",
 	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = HiddenProcAttr()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("extraction failed: %v\nOutput: %s", err, string(out))
@@ -130,7 +129,7 @@ func ExecuteRepackTool(state *AppState, echoDataPath string) (string, error) {
 		"-force",
 		"-quick",
 	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = HiddenProcAttr()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("repack failed: %v\nOutput: %s", err, string(out))
@@ -174,7 +173,7 @@ func ShowRepackDialog(state *AppState) {
 			}))
 		} else {
 			content.Add(widget.NewLabelWithStyle("Step 2: Modify & Repack", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}))
-			
+
 			// Revert Section
 			manifestPath := filepath.Join(state.Settings.EchoVRDataPath, "manifests", PackageName)
 			bakPath := manifestPath + ".bak"
@@ -189,7 +188,7 @@ func ShowRepackDialog(state *AppState) {
 					loading.Show()
 					go func() {
 						defer loading.Hide()
-						
+
 						// 1. Delete current manifest
 						os.Remove(manifestPath)
 						// 2. Rename .bak to original
@@ -215,7 +214,7 @@ func ShowRepackDialog(state *AppState) {
 			}
 			content.Add(widget.NewCard("Revert Management", "", revertUI))
 			content.Add(widget.NewSeparator())
-			
+
 			content.Add(widget.NewLabel("Ready to Repack changes into game."))
 			content.Add(widget.NewButton("REPACK & APPLY", func() {
 				loading := dialog.NewCustom("Repacking...", "Cancel", widget.NewProgressBarInfinite(), w)

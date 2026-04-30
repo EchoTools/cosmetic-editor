@@ -16,7 +16,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"unsafe"
 
 	"fyne.io/fyne/v2"
@@ -314,7 +313,7 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 
 	var extractedPath string
 	symVal := HexToSymbol(hexStr)
-	
+
 	// 1. Try extracted folders
 	extPath := state.Settings.ExtractedPath
 	if extPath == "" {
@@ -377,7 +376,7 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 	// Convert: keeps name but adds .png
 	outPng := filepath.Join(cacheDir, hexStr+".png")
 	cmd := exec.Command(texconvPath, "decode", tempDds, outPng)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = HiddenProcAttr()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if state.StatusLabel != nil {
 			state.StatusLabel.SetText("texconv failed for " + hexStr)
@@ -452,7 +451,7 @@ func HandlePNGThumbnailReplacement(state *AppState, symbol string, selectedPngPa
 			}
 			tempAstcPath := filepath.Join(tempDir, "temp_thumb.astc")
 			cmd := exec.Command(astcPath, "-cs", selectedPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fyne.Do(func() { dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w) })
 				return
@@ -480,7 +479,7 @@ func HandlePNGThumbnailReplacement(state *AppState, symbol string, selectedPngPa
 			}
 			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
 			cmd := exec.Command(texconvPath, "encode", selectedPngPath, generatedFile)
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
 				return
@@ -505,7 +504,13 @@ func HandlePNGThumbnailReplacement(state *AppState, symbol string, selectedPngPa
 
 		metaDir := filepath.Join(absInputDir, metaFolder)
 		os.MkdirAll(metaDir, 0755)
-		fi, _ := os.Stat(targetTex)
+		fi, err := os.Stat(targetTex)
+		if err != nil {
+			fyne.Do(func() {
+				state.StatusLabel.SetText("Failed to stat converted texture: " + err.Error())
+			})
+			return
+		}
 
 		symVal := HexToSymbol(symbol)
 		extPath := state.Settings.ExtractedPath
@@ -673,7 +678,7 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 			}
 			tempAstcPath := filepath.Join(tempDir, "temp_thumb.astc")
 			cmd := exec.Command(astcPath, "-cs", tempPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w)
 				return
@@ -697,7 +702,7 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 			}
 			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
 			cmd := exec.Command(texconvPath, "encode", tempPngPath, generatedFile)
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w)
 				return
@@ -724,7 +729,11 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 		metaDir := filepath.Join(absInputDir, thumbMetaFolder)
 		os.MkdirAll(metaDir, 0755)
 
-		fi, _ := os.Stat(targetTex)
+		fi, err := os.Stat(targetTex)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("failed to stat generated thumbnail: %w", err), w)
+			return
+		}
 		WriteMetadata(filepath.Join(metaDir, idStr), mode, "", uint32(fi.Size()))
 
 		os.Remove(tempPngPath)
@@ -804,7 +813,7 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 			}
 			tempAstcPath := filepath.Join(tempDir, "temp_replacement.astc")
 			cmd := exec.Command(astcPath, "-cs", finalPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fyne.Do(func() { dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w) })
 				return
@@ -823,7 +832,7 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 		} else {
 			generatedFile = filepath.Join(tempDir, "temp_replacement.dds")
 			cmd := exec.Command(texconvPath, "encode", finalPngPath, generatedFile)
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
 				return
@@ -883,7 +892,7 @@ $f.FileName = "Folder Selection."
 if ($f.ShowDialog() -eq 'OK') { Split-Path $f.FileName }
 `
 	cmd := exec.Command("powershell", "-Command", script)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = HiddenProcAttr()
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -904,7 +913,7 @@ $f.Filter = '%s'
 if ($f.ShowDialog() -eq 'OK') { $f.FileName }
 `, filter)
 	cmd := exec.Command("powershell", "-Command", script)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	cmd.SysProcAttr = HiddenProcAttr()
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

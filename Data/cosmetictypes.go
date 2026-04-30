@@ -288,13 +288,13 @@ type CBanner struct {
 
 	TextureSymbol string
 
-	MedalXPos float32
-	MedalYPos float32
+	MedalXPos   float32
+	MedalYPos   float32
 	MedalHeight float32
 	MedalWidth  float32
 
-	EmblemXPos float32
-	EmblemYPos float32
+	EmblemXPos   float32
+	EmblemYPos   float32
 	EmblemHeight float32
 	EmblemWidth  float32
 }
@@ -804,7 +804,6 @@ func (c *CFanfare) FromCosmeticEntry(d CosmeticEntry) error {
 	c.ThumbnailSymbol = SymbolToHex(d.CEntry.ThumbnailSymbol)
 	return nil
 }
-
 
 //func FromCosmeticEntryCommon[d cosmeticEntry, c *CTitle | *CBooster | *CCurrency | *CXp_boost_individual | *CXp_boost_party | *CBracer | *CChassis | *CMedal | *CBanner | *CDecal | *CTag | *CPip | *CDecalborder | *CGoal_fx] (error) {
 //

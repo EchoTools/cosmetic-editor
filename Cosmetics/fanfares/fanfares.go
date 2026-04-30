@@ -104,21 +104,27 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.NameEntry.SetText(t.DisplayName)
 	state.DescEntry.SetText(t.Description)
 	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
-	
+
 	if state.ThumbIdItem != nil {
 		state.ThumbIdItem.Widget.Show()
 	}
 	state.ThumbIdEntry.SetText(data.SymbolToHex(t.ThumbnailSymbol))
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
 
-	f1 := widget.NewEntry(); f1.SetText(fmt.Sprintf("%d", t.Fanfare1ID))
-	f2 := widget.NewEntry(); f2.SetText(fmt.Sprintf("%d", t.Fanfare2ID))
+	f1 := widget.NewEntry()
+	f1.SetText(fmt.Sprintf("%d", t.Fanfare1ID))
+	f2 := widget.NewEntry()
+	f2.SetText(fmt.Sprintf("%d", t.Fanfare2ID))
 
 	saveSounds := func() {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
-		v1, _ := strconv.ParseUint(f1.Text, 10, 32); entry.CEntry.WWiseSoundBankID1 = uint32(v1)
-		v2, _ := strconv.ParseUint(f2.Text, 10, 32); entry.CEntry.WWiseSoundBankID2 = uint32(v2)
+		v1, _ := strconv.ParseUint(f1.Text, 10, 32)
+		entry.CEntry.WWiseSoundBankID1 = uint32(v1)
+		v2, _ := strconv.ParseUint(f2.Text, 10, 32)
+		entry.CEntry.WWiseSoundBankID2 = uint32(v2)
 	}
 	f1.OnChanged = func(string) { saveSounds() }
 	f2.OnChanged = func(string) { saveSounds() }

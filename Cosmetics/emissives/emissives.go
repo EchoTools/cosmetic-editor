@@ -142,7 +142,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 
 	state.CurrentAssetSymbol = data.SymbolToHex(t.TextureSymbol)
 	state.UpdateMainTexture(t.TextureSymbol)
-	
+
 	refreshPreview := func(colors [][3]float32) {
 		if len(colors) == 0 {
 			state.EmissivePreviewImage.Image = nil
@@ -177,17 +177,25 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	emissiveColorsEntry.SetText(colorStr.String())
 
 	emissiveColorsEntry.OnChanged = func(s string) {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		lines := strings.Split(s, "\n")
 		var newExtData []byte
 		var newColors [][3]float32
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
-			if line == "" { continue }
+			if line == "" {
+				continue
+			}
 			line = strings.TrimPrefix(line, "#")
-			if len(line) != 6 { continue }
+			if len(line) != 6 {
+				continue
+			}
 			b, err := hex.DecodeString(line)
-			if err != nil { continue }
+			if err != nil {
+				continue
+			}
 			newExtData = append(newExtData, make([]byte, 12)...)
 			off := len(newExtData) - 12
 			r, g, bl := float32(b[0])/255.0, float32(b[1])/255.0, float32(b[2])/255.0
@@ -213,7 +221,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.CategoryEditor.Refresh()
 
 	refreshPreview(t.Colors)
-	
+
 	state.IsLoadingEntry = false
 }
 

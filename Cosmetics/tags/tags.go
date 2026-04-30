@@ -71,8 +71,12 @@ func SetupUI(state *data.AppState) fyne.CanvasObject {
 		},
 	)
 	tagList.OnSelected = func(id widget.ListItemID) { LoadToEditor(state, state.CategoryFiltered["Tags"][id]) }
-	tagPreviewImage = canvas.NewImageFromResource(nil); tagPreviewImage.FillMode = canvas.ImageFillContain; tagPreviewImage.SetMinSize(fyne.NewSize(0, 300))
-	tagReplacementImage = canvas.NewImageFromResource(nil); tagReplacementImage.FillMode = canvas.ImageFillContain; tagReplacementImage.SetMinSize(fyne.NewSize(0, 300))
+	tagPreviewImage = canvas.NewImageFromResource(nil)
+	tagPreviewImage.FillMode = canvas.ImageFillContain
+	tagPreviewImage.SetMinSize(fyne.NewSize(0, 300))
+	tagReplacementImage = canvas.NewImageFromResource(nil)
+	tagReplacementImage.FillMode = canvas.ImageFillContain
+	tagReplacementImage.SetMinSize(fyne.NewSize(0, 300))
 	return container.NewBorder(searchEntry, nil, nil, nil, tagList)
 }
 
@@ -80,11 +84,14 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	if state.SelectedIndex != realIdx || state.SelectedCategory != "Tags" {
 		state.CurrentReplacementPath = ""
 	}
-	state.SelectedIndex = realIdx; state.SelectedCategory = "Tags"
+	state.SelectedIndex = realIdx
+	state.SelectedCategory = "Tags"
 	state.RefreshCurrent = func(s *data.AppState) { LoadToEditor(s, realIdx) }
-	t := CTag{}; t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
+	t := CTag{}
+	t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx])
 	state.IsLoadingEntry = true
-	state.NameEntry.SetText(t.DisplayName); state.DescEntry.SetText(t.Description)
+	state.NameEntry.SetText(t.DisplayName)
+	state.DescEntry.SetText(t.Description)
 	state.ThumbIdEntry.SetText(data.SymbolToHex(t.ThumbnailSymbol))
 	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
@@ -96,9 +103,12 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			state.CurrentOriginalAssetPath = p
 		}
 	}
-	texEnt := widget.NewEntry(); texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
+	texEnt := widget.NewEntry()
+	texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
 	texEnt.OnChanged = func(s string) {
-		if state.IsLoadingEntry { return }
+		if state.IsLoadingEntry {
+			return
+		}
 		state.CosmeticList.CosmeticEntries[state.SelectedIndex].CEntry.TextureSymbol = data.HexToSymbol(s)
 		state.CurrentAssetSymbol = s
 	}
@@ -132,10 +142,15 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 }
 
 func RefreshFilter(state *data.AppState, query string) {
-	query = strings.ToLower(query); state.CategoryFiltered["Tags"] = []int{}
+	query = strings.ToLower(query)
+	state.CategoryFiltered["Tags"] = []int{}
 	for _, idx := range state.CategoryIndices["Tags"] {
 		dName := strings.ToLower(string(bytes.TrimRight(state.CosmeticList.CosmeticEntries[idx].CEntry.DisplayNameString[:], "\x00")))
-		if query == "" || strings.Contains(dName, query) { state.CategoryFiltered["Tags"] = append(state.CategoryFiltered["Tags"], idx) }
+		if query == "" || strings.Contains(dName, query) {
+			state.CategoryFiltered["Tags"] = append(state.CategoryFiltered["Tags"], idx)
+		}
 	}
-	if tagList != nil { tagList.Refresh() }
+	if tagList != nil {
+		tagList.Refresh()
+	}
 }
