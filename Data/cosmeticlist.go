@@ -50,7 +50,7 @@ func BytesToCosmeticList(b []byte) (CosmeticList, error) {
 		imgSz := cList.CosmeticEntries[i].CEntry.ImageListingEntrySize
 		othSz := cList.CosmeticEntries[i].CEntry.OtherEntrySize
 		// Guard against negative sizes and int64 overflow before converting to int.
-		if imgSz <= 0 || othSz < 0 || imgSz > int64(^uint(0)>>1)-othSz {
+		if imgSz < 0 || othSz < 0 || imgSz > int64(^uint(0)>>1)-othSz {
 			continue
 		}
 		sz := int(imgSz + othSz)

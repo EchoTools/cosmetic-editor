@@ -250,14 +250,16 @@ func main() {
 			state.ThumbImage.Hide()
 		}
 
-		if idx >= 0 && idx <= 4 {
+		if (idx >= 0 && idx <= 4) || idx == 9 {
 			if state.PreviewTintContainer != nil {
 				state.PreviewTintContainer.Hide()
 			}
+		}
+
+		if catNames[idx] == "Patterns" {
+			state.PreviewTintContainer.Show()
 		} else {
-			if state.PreviewTintContainer != nil {
-				state.PreviewTintContainer.Show()
-			}
+			state.PreviewTintContainer.Hide()
 		}
 
 		if state.PreviewTintContainer != nil {
@@ -415,18 +417,26 @@ func main() {
 			state.RefreshCurrent(state)
 		}
 	})
-	state.PreviewTintSelect = widget.NewSelect([]string{}, func(s string) {
-		for i, idx := range state.CategoryIndices["Tints"] {
-			if strings.TrimRight(string(state.CosmeticList.CosmeticEntries[idx].CEntry.DisplayNameString[:]), "\x00") == s {
-				state.PreviewTintIndex = i
-				break
+	state.PreviewTintSelect = widget.NewSelect(nil, func(s string) {
+		if s == "" {
+			state.PreviewTintIndex = -1
+		} else {
+			for _, idx := range state.CategoryIndices["Tints"] {
+				entry := state.CosmeticList.CosmeticEntries[idx]
+				dName := strings.TrimRight(string(entry.CEntry.DisplayNameString[:]), "\x00")
+				if dName == s {
+					state.PreviewTintIndex = idx
+					break
+				}
 			}
 		}
 		if state.RefreshCurrent != nil {
 			state.RefreshCurrent(state)
 		}
 	})
-	state.PreviewTintContainer = container.NewVBox(state.PreviewTintCheck, state.PreviewTintSelect)
+	state.PreviewTintSelect.PlaceHolder = "Select a tint to preview"
+
+	state.PreviewTintContainer = container.NewBorder(nil, nil, state.PreviewTintCheck, nil, state.PreviewTintSelect)
 	state.PreviewTintContainer.Hide()
 
 	btnSave := widget.NewButtonWithIcon("SAVE DATA FILE", theme.DocumentSaveIcon(), func() {

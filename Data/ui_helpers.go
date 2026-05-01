@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	_ "image/gif"
 	"image/png"
 	"math"
@@ -148,6 +149,16 @@ func RefreshAssetPreview(state *AppState, origImg, replImg *canvas.Image, origPa
 			}
 
 			if allowTint && state.PreviewTintCheck != nil && state.PreviewTintCheck.Checked && state.PreviewTintIndex != -1 {
+				// We need to mutate the image, so ensure it's an RGBA
+				bounds := src.Bounds()
+				var dst *image.RGBA
+				if tinted, ok := src.(*image.RGBA); ok {
+					dst = tinted
+				} else {
+					dst = image.NewRGBA(bounds)
+					draw.Draw(dst, bounds, src, image.Point{}, draw.Src)
+				}
+
 				tintIndices := state.CategoryIndices["Tints"]
 				if state.PreviewTintIndex < len(tintIndices) {
 					realTintIdx := tintIndices[state.PreviewTintIndex]
@@ -168,10 +179,14 @@ func RefreshAssetPreview(state *AppState, origImg, replImg *canvas.Image, origPa
 						pri := color.RGBA{uint8(priR * 255), uint8(priG * 255), uint8(priB * 255), 255}
 						sec := color.RGBA{uint8(secR * 255), uint8(secG * 255), uint8(secB * 255), 255}
 
-						tinted := ApplyTintToImage(src, pri, sec)
-						return nil, tinted
+						src = ApplyTintToImage(src, pri, sec)
 					}
 				}
+			}
+
+			// If we transformed src into a new RGBA (or tinted it), we should return it as the image
+			if _, ok := src.(*image.RGBA); ok {
+				return nil, src
 			}
 
 			res, _ := fyne.LoadResourceFromPath(p)

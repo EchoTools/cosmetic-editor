@@ -4,6 +4,16 @@ All notable changes to EchoVR Cosmetics Editor are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.0] - 2026-05-01
+
+### Changed
+- **Banners Editor**: Removed `Width` and `Height` text inputs for Emblems and Medals. These underlying values (`unk1` and `unk2`) are now recognized as internal scaling/shader properties rather than literal 2D texture dimensions, so hiding them prevents accidental corruption of banner decal mappings.
+
+### Fixed
+- **Tint Previews**: Fixed an issue where Tints were not rendering correctly on top of asset previews by resolving image boundaries and RGBA mutation loops in `ApplyTintToImage`.
+- **Medal Tints**: Removed the erroneous "Preview with Tint" toggle option for Medals, as Medals natively do not support custom tinting.
+- **Replacement Texture Persistence**: Resolved a critical bug in `banners.go` where `LoadToEditor` was failing to pass the `CurrentReplacementPath` state variable to the preview refresher, causing replacement textures to disappear visually when other UI elements were updated.
+
 ## [1.0.0] - 2024-01-01
 
 ### Added

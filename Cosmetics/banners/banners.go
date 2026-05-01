@@ -176,19 +176,11 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	mx.SetText(fmt.Sprintf("%.2f", t.MedalXPos))
 	my := widget.NewEntry()
 	my.SetText(fmt.Sprintf("%.2f", t.MedalYPos))
-	mh := widget.NewEntry()
-	mh.SetText(fmt.Sprintf("%.2f", t.MedalHeight))
-	mw := widget.NewEntry()
-	mw.SetText(fmt.Sprintf("%.2f", t.MedalWidth))
 
 	ex := widget.NewEntry()
 	ex.SetText(fmt.Sprintf("%.2f", t.EmblemXPos))
 	ey := widget.NewEntry()
 	ey.SetText(fmt.Sprintf("%.2f", t.EmblemYPos))
-	eh := widget.NewEntry()
-	eh.SetText(fmt.Sprintf("%.2f", t.EmblemHeight))
-	ew := widget.NewEntry()
-	ew.SetText(fmt.Sprintf("%.2f", t.EmblemWidth))
 
 	texEnt := widget.NewEntry()
 	texEnt.SetText(data.SymbolToHex(t.TextureSymbol))
@@ -204,28 +196,16 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 		entry.CEntry.BannerMedalXPos = float32(f)
 		f, _ = strconv.ParseFloat(my.Text, 32)
 		entry.CEntry.BannerMedalYPos = float32(f)
-		f, _ = strconv.ParseFloat(mh.Text, 32)
-		entry.CEntry.BannerMedalHeight = float32(f)
-		f, _ = strconv.ParseFloat(mw.Text, 32)
-		entry.CEntry.BannerMedalWidth = float32(f)
 		f, _ = strconv.ParseFloat(ex.Text, 32)
 		entry.CEntry.BannerEmblemXPos = float32(f)
 		f, _ = strconv.ParseFloat(ey.Text, 32)
 		entry.CEntry.BannerEmblemYPos = float32(f)
-		f, _ = strconv.ParseFloat(eh.Text, 32)
-		entry.CEntry.BannerEmblemHeight = float32(f)
-		f, _ = strconv.ParseFloat(ew.Text, 32)
-		entry.CEntry.BannerEmblemWidth = float32(f)
 	}
 
 	mx.OnChanged = func(string) { saveChanges() }
 	my.OnChanged = func(string) { saveChanges() }
-	mh.OnChanged = func(string) { saveChanges() }
-	mw.OnChanged = func(string) { saveChanges() }
 	ex.OnChanged = func(string) { saveChanges() }
 	ey.OnChanged = func(string) { saveChanges() }
-	eh.OnChanged = func(string) { saveChanges() }
-	ew.OnChanged = func(string) { saveChanges() }
 	texEnt.OnChanged = func(s string) {
 		saveChanges()
 		state.CurrentAssetSymbol = s
@@ -262,22 +242,18 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 		widget.NewForm(
 			widget.NewFormItem("X Pos", mx),
 			widget.NewFormItem("Y Pos", my),
-			widget.NewFormItem("Height", mh),
-			widget.NewFormItem("Width", mw),
 		),
 		widget.NewSeparator(),
 		widget.NewLabel("Emblem Position"),
 		widget.NewForm(
 			widget.NewFormItem("X Pos", ex),
 			widget.NewFormItem("Y Pos", ey),
-			widget.NewFormItem("Height", eh),
-			widget.NewFormItem("Width", ew),
 		),
 	}
 	state.CategoryEditor.Refresh()
 
 	// Initial Preview Update
-	data.RefreshAssetPreview(state, bannerPreviewImage, bannerReplacementImage, curBannerOrigPath, "", true)
+	data.RefreshAssetPreview(state, bannerPreviewImage, bannerReplacementImage, curBannerOrigPath, state.CurrentReplacementPath, true)
 
 	state.IsLoadingEntry = false
 }
