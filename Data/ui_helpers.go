@@ -159,9 +159,8 @@ func RefreshAssetPreview(state *AppState, origImg, replImg *canvas.Image, origPa
 					draw.Draw(dst, bounds, src, image.Point{}, draw.Src)
 				}
 
-				tintIndices := state.CategoryIndices["Tints"]
-				if state.PreviewTintIndex < len(tintIndices) {
-					realTintIdx := tintIndices[state.PreviewTintIndex]
+				realTintIdx := state.PreviewTintIndex
+				if realTintIdx >= 0 && realTintIdx < len(state.CosmeticList.CosmeticEntries) {
 					entry := state.CosmeticList.CosmeticEntries[realTintIdx]
 
 					// Extraction logic for Tint (6 floats, 24 bytes)

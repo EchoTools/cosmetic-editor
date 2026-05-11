@@ -250,16 +250,15 @@ func main() {
 			state.ThumbImage.Hide()
 		}
 
-		if (idx >= 0 && idx <= 4) || idx == 9 {
+		switch catNames[idx] {
+		case "Banners", "Tags", "Emblems", "Decals", "Pips", "Patterns":
+			if state.PreviewTintContainer != nil {
+				state.PreviewTintContainer.Show()
+			}
+		default:
 			if state.PreviewTintContainer != nil {
 				state.PreviewTintContainer.Hide()
 			}
-		}
-
-		if catNames[idx] == "Patterns" {
-			state.PreviewTintContainer.Show()
-		} else {
-			state.PreviewTintContainer.Hide()
 		}
 
 		if state.PreviewTintContainer != nil {
@@ -493,23 +492,25 @@ func main() {
 		dbPath := filepath.Join(data.GetSettingsDir(), inputDir, tintFolder, tintFile)
 		if data, err := os.ReadFile(dbPath); err == nil {
 			b = data
-			state.StatusLabel.SetText("Loaded from input database.")
+			fyne.Do(func() { state.StatusLabel.SetText("Loaded from input database.") })
 		} else if data, err := os.ReadFile(tempFilePath); err == nil {
 			b = data
-			state.StatusLabel.SetText("Resumed from autosave.")
+			fyne.Do(func() { state.StatusLabel.SetText("Resumed from autosave.") })
 		} else {
 			b = embeddedOriginal
-			state.StatusLabel.SetText("Loaded default database.")
+			fyne.Do(func() { state.StatusLabel.SetText("Loaded default database.") })
 		}
 
 		cList, err := data.BytesToCosmeticList(b)
 		if err != nil {
-			state.StatusLabel.SetText("Warning: failed to parse cosmetic data: " + err.Error())
+			fyne.Do(func() { state.StatusLabel.SetText("Warning: failed to parse cosmetic data: " + err.Error()) })
 		}
 		state.CosmeticList = cList
-		state.RefreshIndices()
-		state.ClearUI()
-		selectTab(0)
+		fyne.Do(func() {
+			state.RefreshIndices()
+			state.ClearUI()
+			selectTab(0)
+		})
 	}()
 
 	w.ShowAndRun()

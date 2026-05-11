@@ -142,7 +142,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 		replaceMedalBtn,
 	}
 	state.CategoryEditor.Refresh()
-	data.RefreshAssetPreview(state, medalPreviewImage, medalReplacementImage, state.CurrentOriginalAssetPath, state.CurrentReplacementPath, true)
+	data.RefreshAssetPreview(state, medalPreviewImage, medalReplacementImage, state.CurrentOriginalAssetPath, state.CurrentReplacementPath, false)
 	state.IsLoadingEntry = false
 }
 

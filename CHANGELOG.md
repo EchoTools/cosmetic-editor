@@ -4,6 +4,16 @@ All notable changes to EchoVR Cosmetics Editor are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.1.1] - 2026-05-11
+
+### Added
+- **Preview with Tint**: Enabled the "Preview with Tint" feature for Banners, Tags, Emblems, Decals, and Pips.
+
+### Fixed
+- **Tint Previews**: Fixed a bug where the tint preview was not working on Patterns due to incorrect index mapping in `RefreshAssetPreview`.
+- **UI Thread Safety**: Resolved multiple thread safety errors ("Error in Fyne call thread") by wrapping background UI updates in `fyne.Do`.
+- **Medal Tints**: Ensured that tints are not applied to Medals even if the state was active when switching tabs.
+
 ## [1.1.0] - 2026-05-01
 
 ### Changed
