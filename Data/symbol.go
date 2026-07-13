@@ -149,5 +149,5 @@ func SymbolToHex(v int64) string {
 	if v == -1 {
 		return ""
 	}
-	return fmt.Sprintf("%x", uint64(v))
+	return fmt.Sprintf("%016x", uint64(v))
 }

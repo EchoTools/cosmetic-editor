@@ -134,6 +134,7 @@ func ExecuteRepackTool(state *AppState, echoDataPath string) (string, error) {
 	if err != nil {
 		return string(out), fmt.Errorf("repack failed: %v\nOutput: %s", err, string(out))
 	}
+	state.NeedsRepack = false // Reset repack tracking
 	return string(out), nil
 }
 
@@ -161,7 +162,7 @@ func ShowRepackDialog(state *AppState) {
 				loading := dialog.NewCustom("Extracting...", "Cancel", widget.NewProgressBarInfinite(), w)
 				loading.Show()
 				go func() {
-					err := RunExtract(state, state.Settings.EchoVRDataPath, "tints")
+					err := RunExtract(state, state.Settings.EchoVRDataPath, "tints,textures,models")
 					loading.Hide()
 					if err != nil {
 						dialog.ShowError(err, w)

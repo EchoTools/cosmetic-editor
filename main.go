@@ -3,10 +3,13 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"image/color"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -16,9 +19,11 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"image/color"
 
 	"github.com/EchoTools/cosmetic-editor/Cosmetics/banners"
+	"github.com/EchoTools/cosmetic-editor/Cosmetics/boosters"
+	"github.com/EchoTools/cosmetic-editor/Cosmetics/bracers"
+	"github.com/EchoTools/cosmetic-editor/Cosmetics/chassis"
 	"github.com/EchoTools/cosmetic-editor/Cosmetics/decals"
 	"github.com/EchoTools/cosmetic-editor/Cosmetics/emblems"
 	"github.com/EchoTools/cosmetic-editor/Cosmetics/emissives"
@@ -44,6 +49,15 @@ var embeddedIcon []byte
 //go:embed Data/template_thumb.png
 var embeddedTemplate []byte
 
+//go:embed Data/backend_chassis_builder.py
+var embeddedBackendChassisBuilder []byte
+
+//go:embed Data/blender_chassis_processor.py
+var embeddedBlenderChassisProcessor []byte
+
+//go:embed Data/evr_mesh_importer.zip
+var embeddedEvrMeshImporter []byte
+
 const (
 	SettingsDirName = "settings"
 )
@@ -59,6 +73,15 @@ var (
 	tempFilePath string
 )
 
+func fixEchoVRPath(p string) string {
+	idx := strings.Index(strings.ToLower(p), "ready-at-dawn-echo-arena")
+	if idx != -1 {
+		base := p[:idx+len("ready-at-dawn-echo-arena")]
+		return filepath.Join(base, "_data", "5932408047", "rad15", "win10")
+	}
+	return p
+}
+
 func main() {
 	os.Setenv("FYNE_GL_VERSION", "2.1")
 
@@ -69,6 +92,14 @@ func main() {
 	tempDir := filepath.Join(settingsPath, "Temp")
 	os.MkdirAll(tempDir, 0755)
 	tempFilePath = filepath.Join(tempDir, "temp_autosave.dat")
+	
+	scriptsDir := filepath.Join(tempDir, "Scripts")
+	os.MkdirAll(scriptsDir, 0755)
+	
+	// Extract bundled dependencies
+	os.WriteFile(filepath.Join(scriptsDir, "backend_chassis_builder.py"), embeddedBackendChassisBuilder, 0644)
+	os.WriteFile(filepath.Join(scriptsDir, "blender_chassis_processor.py"), embeddedBlenderChassisProcessor, 0644)
+	os.WriteFile(filepath.Join(scriptsDir, "evr_mesh_importer.zip"), embeddedEvrMeshImporter, 0644)
 
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
@@ -115,6 +146,7 @@ func main() {
 		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
 		entry.CEntry.RaritySymbol = state.GetRaritySymbol(s)
+		state.AutoSave()
 	})
 	state.RaritySelect.PlaceHolder = "Select Rarity" // Optional: gives a better default than "Select One"
 
@@ -132,14 +164,22 @@ func main() {
 			return
 		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
+		for i := range entry.CEntry.DisplayNameString {
+			entry.CEntry.DisplayNameString[i] = 0
+		}
 		copy(entry.CEntry.DisplayNameString[:], []byte(s))
+		state.AutoSave()
 	}
 	state.DescEntry.OnChanged = func(s string) {
 		if state.SelectedIndex == -1 || state.IsLoadingEntry {
 			return
 		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
+		for i := range entry.CEntry.DescriptionString {
+			entry.CEntry.DescriptionString[i] = 0
+		}
 		copy(entry.CEntry.DescriptionString[:], []byte(s))
+		state.AutoSave()
 	}
 	state.ThumbIdEntry.OnChanged = func(s string) {
 		if state.SelectedIndex == -1 || state.IsLoadingEntry {
@@ -147,19 +187,20 @@ func main() {
 		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
 		entry.CEntry.ThumbnailSymbol = data.HexToSymbol(s)
+		state.AutoSave()
 	}
 
 	state.CategoryEditor = container.NewVBox()
 
 	// 2. NAVIGATION & CONTENT ASSEMBLY
-	catNames := []string{"Tints", "Titles", "Emissives", "Fanfares", "Emotes", "Banners", "Tags", "Emblems", "Decals", "Medals", "Pips", "Patterns"}
+	catNames := []string{"Chassis", "Bracers", "Boosters", "Tints", "Titles", "Emissives", "Fanfares", "Emotes", "Banners", "Tags", "Emblems", "Decals", "Medals", "Pips", "Patterns"}
 	catIcons := []fyne.Resource{
-		theme.ColorPaletteIcon(), theme.DocumentIcon(), theme.VisibilityIcon(), theme.VolumeUpIcon(), theme.MediaPlayIcon(),
+		theme.AccountIcon(), theme.AccountIcon(), theme.AccountIcon(), theme.ColorPaletteIcon(), theme.DocumentIcon(), theme.VisibilityIcon(), theme.VolumeUpIcon(), theme.MediaPlayIcon(),
 		theme.GridIcon(), theme.ContentCopyIcon(), theme.ComputerIcon(), theme.CheckButtonIcon(), theme.HelpIcon(), theme.MenuIcon(), theme.ListIcon(),
 	}
 
 	catUIs := []fyne.CanvasObject{
-		tints.SetupUI(state), titles.SetupUI(state), emissives.SetupUI(state), fanfares.SetupUI(state), emotes.SetupUI(state),
+		chassis.SetupUI(state), bracers.SetupUI(state), boosters.SetupUI(state), tints.SetupUI(state), titles.SetupUI(state), emissives.SetupUI(state), fanfares.SetupUI(state), emotes.SetupUI(state),
 		banners.SetupUI(state), tags.SetupUI(state), emblems.SetupUI(state), decals.SetupUI(state), medals.SetupUI(state), pips.SetupUI(state), patterns.SetupUI(state),
 	}
 
@@ -220,6 +261,9 @@ func main() {
 		case "Fanfares":
 			showThumbCard = true
 			state.GenThumbBtn.Hide()
+		case "Chassis", "Bracers", "Boosters":
+			showThumbCard = true
+			state.GenThumbBtn.Show()
 		case "Titles":
 			showThumbImage = false
 			state.ThumbIdItem.Widget.Hide()
@@ -274,24 +318,34 @@ func main() {
 		navButtons[i] = widget.NewButtonWithIcon(name, catIcons[i], func() { selectTab(idx) })
 	}
 
-	row1 := container.NewGridWithColumns(5, navButtons[0], navButtons[1], navButtons[2], navButtons[3], navButtons[4])
-	row2 := container.NewGridWithColumns(7, navButtons[5], navButtons[6], navButtons[7], navButtons[8], navButtons[9], navButtons[10], navButtons[11])
+	row1 := container.NewGridWithColumns(8, navButtons[0], navButtons[1], navButtons[2], navButtons[3], navButtons[4], navButtons[5], navButtons[6], navButtons[7])
+	row2 := container.NewGridWithColumns(7, navButtons[8], navButtons[9], navButtons[10], navButtons[11], navButtons[12], navButtons[13], navButtons[14])
 	navArea := container.NewVBox(row1, row2)
 
 	// Action Bar Enhancement
-	btnExtractAssets := widget.NewButtonWithIcon("EXTRACT ASSETS (TINTS/TEXTURES)", theme.DownloadIcon(), func() {
+	var btnExtractAssets *widget.Button
+	btnExtractAssets = widget.NewButtonWithIcon("EXTRACT ASSETS", theme.DownloadIcon(), func() {
 		loading := dialog.NewCustom("Extracting Assets...", "Cancel", widget.NewProgressBarInfinite(), w)
 		loading.Show()
 		go func() {
-			err := data.RunExtract(state, state.Settings.EchoVRDataPath, "tints,textures")
+			err := data.RunExtract(state, state.Settings.EchoVRDataPath, "tints,textures,models")
 			loading.Hide()
 			if err != nil {
 				dialog.ShowError(err, w)
 			} else {
-				dialog.ShowInformation("Success", "Tints and Textures extracted to pcvr-extracted folder.", w)
+				dialog.ShowInformation("Success", "Assets extracted to pcvr-extracted folder.", w)
+				btnExtractAssets.Hide()
 			}
 		}()
 	})
+	
+	extractedPath := state.Settings.ExtractedPath
+	if extractedPath == "" {
+		extractedPath = filepath.Join(data.GetSettingsDir(), data.ExtractedDirName)
+	}
+	if entries, err := os.ReadDir(extractedPath); err == nil && len(entries) > 0 {
+		btnExtractAssets.Hide()
+	}
 
 	btnRepack := widget.NewButtonWithIcon("REPACK PACKAGE", theme.StorageIcon(), func() {
 		data.ShowRepackDialog(state)
@@ -308,9 +362,9 @@ func main() {
 
 		makeBrowseItem := func(entry *widget.Entry) fyne.CanvasObject {
 			browseBtn := widget.NewButton("Browse", func() {
-				path, err := data.PickFolder()
+				path, err := data.PickFolder("Select Folder")
 				if err == nil && path != "" {
-					entry.SetText(path)
+					entry.SetText(fixEchoVRPath(path))
 				}
 			})
 			return container.NewBorder(nil, nil, nil, browseBtn, entry)
@@ -335,34 +389,31 @@ func main() {
 		modal.Show()
 	})
 
-	btnLoadFile := widget.NewButtonWithIcon("Load", theme.FileIcon(), func() {
-		path, err := data.PickFile("Data Files (*.dat)|*.dat|All Files (*.*)|*.*")
-		if err == nil && path != "" {
-			dataBytes, _ := os.ReadFile(path)
-			cList, err := data.BytesToCosmeticList(dataBytes)
-			if err != nil {
-				dialog.ShowError(err, w)
-				return
+	btnResetData := widget.NewButtonWithIcon("Reset", theme.HistoryIcon(), func() {
+		dialog.ShowConfirm("Reset to Stock", "Are you sure you want to reset all cosmetics back to the original stock data?\nThis cannot be undone.", func(b bool) {
+			if b {
+				cList, err := data.BytesToCosmeticList(embeddedOriginal)
+				if err != nil {
+					dialog.ShowError(fmt.Errorf("failed to parse original stock data: %v", err), w)
+					return
+				}
+				
+				state.CosmeticList = cList
+				state.AutoSave()
+				
+				state.RefreshIndices()
+				state.ClearUI()
+				selectTab(0)
+				dialog.ShowInformation("Reset Complete", "The cosmetic data has been restored to the original stock settings.", w)
 			}
-			state.CosmeticList = cList
-			state.RefreshIndices()
-			state.ClearUI()
-		}
+		}, w)
 	})
 
-	btnChooseMode := widget.NewButton(state.Settings.Mode, func() {
-		if state.Settings.Mode == "PCVR" {
-			state.Settings.Mode = "Quest"
-		} else {
-			state.Settings.Mode = "PCVR"
-		}
-		saveSettings()
-		w.SetTitle("Cosmetics Editor - " + state.Settings.Mode)
-		w.Content().Refresh()
-	})
+	btnChooseMode := widget.NewButton(state.Settings.Mode, func() {})
+	btnChooseMode.Hide() // Quest isn't finished yet
 
 	actionBar := container.NewBorder(nil, nil, nil,
-		container.NewHBox(btnChooseMode, btnLoadFile, btnSettings),
+		container.NewHBox(btnChooseMode, btnResetData, btnSettings),
 		container.NewVBox(btnExtractAssets, btnRepack),
 	)
 
@@ -438,36 +489,32 @@ func main() {
 	state.PreviewTintContainer = container.NewBorder(nil, nil, state.PreviewTintCheck, nil, state.PreviewTintSelect)
 	state.PreviewTintContainer.Hide()
 
-	btnSave := widget.NewButtonWithIcon("SAVE DATA FILE", theme.DocumentSaveIcon(), func() {
-		inputDir := data.InputDirNamePC
-		tintFolder := data.TintFolderPC
-		tintFile := data.TintFileNamePC
-		if state.Settings.Mode == "Quest" {
-			inputDir = data.InputDirNameQuest
-			tintFolder = data.TintFolderQuest
-			tintFile = data.TintFileNameQuest
-		}
-
-		dbDir := filepath.Join(data.GetSettingsDir(), inputDir, tintFolder)
-		os.MkdirAll(dbDir, 0755)
-		dbPath := filepath.Join(dbDir, tintFile)
-
-		if err := state.HandleSave(dbPath); err == nil {
-			dialog.ShowInformation("Success", "File saved correctly to:\n"+dbPath, w)
-			// Still save to temp for safety; log failure but don't interrupt the success flow.
-			if err := state.HandleSave(tempFilePath); err != nil {
-				state.StatusLabel.SetText("Warning: autosave failed: " + err.Error())
-			}
-		} else {
-			dialog.ShowError(err, w)
-		}
-	})
-	btnSave.Importance = widget.HighImportance
-
 	footer := container.NewVBox(
 		widget.NewSeparator(),
-		container.NewPadded(container.NewVBox(state.PreviewTintContainer, btnSave, state.StatusLabel)),
+		container.NewPadded(container.NewVBox(state.PreviewTintContainer, state.StatusLabel)),
 	)
+
+	// Close Intercept
+	w.SetCloseIntercept(func() {
+		if state.NeedsRepack {
+			dialog.ShowConfirm("Unsaved Changes", "You didn't repack your package, are you sure you want to exit?", func(b bool) {
+				if b {
+					w.Close()
+				} else {
+					// Flash repack button
+					btnRepack.Importance = widget.WarningImportance
+					btnRepack.Refresh()
+					go func() {
+						time.Sleep(1 * time.Second)
+						btnRepack.Importance = widget.HighImportance
+						btnRepack.Refresh()
+					}()
+				}
+			}, w)
+		} else {
+			w.Close()
+		}
+	})
 
 	rightSide := container.NewBorder(nil, footer, nil, nil, container.NewVScroll(sidebarContent))
 	mainSplit := container.NewHSplit(leftSide, container.NewPadded(rightSide))
@@ -510,6 +557,40 @@ func main() {
 			state.RefreshIndices()
 			state.ClearUI()
 			selectTab(0)
+			
+			// Initial extraction check
+			extractedPath := state.Settings.ExtractedPath
+			if extractedPath == "" {
+				extractedPath = filepath.Join(data.GetSettingsDir(), data.ExtractedDirName)
+			}
+			if entries, err := os.ReadDir(extractedPath); err != nil || len(entries) == 0 {
+				dialog.ShowConfirm("Setup Required", "Please select your Echo VR folder to extract initial assets.\n\nNOTE: This extraction requires approximately 12.5GB of free disk space.", func(b bool) {
+					if b {
+						path, err := data.PickFolder("Select Echo VR Folder")
+						if err == nil && path != "" {
+							state.Settings.EchoVRDataPath = fixEchoVRPath(path)
+							saveSettings()
+							
+							loading := dialog.NewCustom("Extracting Initial Assets...", "Please Wait", widget.NewProgressBarInfinite(), w)
+							loading.Show()
+							go func() {
+								err := data.RunExtract(state, state.Settings.EchoVRDataPath, "tints,textures,models")
+								loading.Hide()
+								if err != nil {
+									fyne.Do(func() { dialog.ShowError(err, w) })
+								} else {
+									fyne.Do(func() {
+										dialog.ShowInformation("Success", "Assets extracted successfully.", w)
+										if btnExtractAssets != nil {
+											btnExtractAssets.Hide()
+										}
+									})
+								}
+							}()
+						}
+					}
+				}, w)
+			}
 		})
 	}()
 

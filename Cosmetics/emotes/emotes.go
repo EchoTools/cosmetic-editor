@@ -363,7 +363,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			tempDir := filepath.Join(settingsPath, "Temp")
 			os.MkdirAll(tempDir, 0755)
 
-			texconvPath, err := data.FindTool(settingsPath, "texconv.exe")
+			texconvPath, err := data.FindTool(settingsPath, "ms_texconv.exe")
 			if err != nil {
 				fyne.Do(func() { dialog.ShowError(err, state.Window) })
 				return
@@ -425,9 +425,12 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 				pngOut.Close()
 
 				ddsPath := filepath.Join(tempDir, fmt.Sprintf("frame_%d.dds", i))
-				cmd := exec.Command(texconvPath, "encode", pngPath, ddsPath)
+				cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", pngPath)
 				cmd.SysProcAttr = data.HiddenProcAttr()
 				cmd.CombinedOutput()
+
+				generatedFile := filepath.Join(tempDir, fmt.Sprintf("frame_%d_resized.dds", i))
+				os.Rename(generatedFile, ddsPath)
 
 				ddsData, _ := os.ReadFile(ddsPath)
 				ddsSize := uint32(len(ddsData))

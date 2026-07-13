@@ -147,6 +147,57 @@ type CBooster struct {
 	Description     string
 	Rarity          string
 	ThumbnailSymbol string
+
+	TextureSymbol   string
+	AssetSymbol5    int64
+	AssetSymbol6    int64
+	AssetSymbol11   int64
+	AssetSymbol12   int64
+}
+
+// ToCosmeticEntry converts a CBooster to a raw CosmeticEntry for serialization.
+func (c *CBooster) ToCosmeticEntry() (CosmeticEntry, error) {
+	foo := CosmeticEntry{}
+	foo.CEntry = NewCDescriptor()
+	foo.CEntry.CosmeticTypeSymbol = int64(ToSymbol("booster"))
+	foo.CEntry.InternalNameSymbol = int64(ToSymbol(strings.TrimSpace(c.InternalName)))
+	foo.CEntry.InternalNameSymbol2 = foo.CEntry.InternalNameSymbol
+	copy(foo.CEntry.InternalNameString[:], []byte(c.InternalName))
+	copy(foo.CEntry.DisplayNameString[:], []byte(c.DisplayName))
+	copy(foo.CEntry.DescriptionString[:], []byte(c.Description))
+	foo.CEntry.RaritySymbol = HexToSymbol(c.Rarity)
+	foo.CEntry.ThumbnailSymbol = HexToSymbol(c.ThumbnailSymbol)
+	foo.CEntry.TextureSymbol = HexToSymbol(c.TextureSymbol)
+
+	if c.AssetSymbol5 != 0 {
+		foo.CEntry.AssetSymbol5 = c.AssetSymbol5
+	}
+	if c.AssetSymbol6 != 0 {
+		foo.CEntry.AssetSymbol6 = c.AssetSymbol6
+	}
+	if c.AssetSymbol11 != 0 {
+		foo.CEntry.AssetSymbol11 = c.AssetSymbol11
+	}
+	if c.AssetSymbol12 != 0 {
+		foo.CEntry.AssetSymbol12 = c.AssetSymbol12
+	}
+	return foo, nil
+}
+
+// FromCosmeticEntry populates a CBooster from a raw CosmeticEntry.
+func (c *CBooster) FromCosmeticEntry(d CosmeticEntry) error {
+	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
+	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
+	c.Description = string(bytes.TrimRight(d.CEntry.DescriptionString[:], "\x00"))
+	c.Rarity = SymbolToHex(d.CEntry.RaritySymbol)
+	c.ThumbnailSymbol = SymbolToHex(d.CEntry.ThumbnailSymbol)
+	c.TextureSymbol = SymbolToHex(d.CEntry.TextureSymbol)
+
+	c.AssetSymbol5 = d.CEntry.AssetSymbol5
+	c.AssetSymbol6 = d.CEntry.AssetSymbol6
+	c.AssetSymbol11 = d.CEntry.AssetSymbol11
+	c.AssetSymbol12 = d.CEntry.AssetSymbol12
+	return nil
 }
 
 // CCurrency represents an in-game currency cosmetic item.
@@ -184,6 +235,61 @@ type CBracer struct {
 	Description     string
 	Rarity          string
 	ThumbnailSymbol string
+
+	TextureSymbol   string
+	AssetSymbol5    int64
+	AssetSymbol6    int64
+	AssetSymbol8    int64
+	AssetSymbol9    int64
+	AssetSymbol11   int64
+	AssetSymbol12   int64
+	AssetSymbol14   int64
+	AssetSymbol15   int64
+}
+
+// ToCosmeticEntry converts a CBracer to a raw CosmeticEntry for serialization.
+func (c *CBracer) ToCosmeticEntry() (CosmeticEntry, error) {
+	foo := CosmeticEntry{}
+	foo.CEntry = NewCDescriptor()
+	foo.CEntry.CosmeticTypeSymbol = int64(ToSymbol("bracer"))
+	foo.CEntry.InternalNameSymbol = int64(ToSymbol(strings.TrimSpace(c.InternalName)))
+	foo.CEntry.InternalNameSymbol2 = foo.CEntry.InternalNameSymbol
+	copy(foo.CEntry.InternalNameString[:], []byte(c.InternalName))
+	copy(foo.CEntry.DisplayNameString[:], []byte(c.DisplayName))
+	copy(foo.CEntry.DescriptionString[:], []byte(c.Description))
+	foo.CEntry.RaritySymbol = HexToSymbol(c.Rarity)
+	foo.CEntry.ThumbnailSymbol = HexToSymbol(c.ThumbnailSymbol)
+	foo.CEntry.TextureSymbol = HexToSymbol(c.TextureSymbol)
+
+	if c.AssetSymbol5 != 0 { foo.CEntry.AssetSymbol5 = c.AssetSymbol5 }
+	if c.AssetSymbol6 != 0 { foo.CEntry.AssetSymbol6 = c.AssetSymbol6 }
+	if c.AssetSymbol8 != 0 { foo.CEntry.AssetSymbol8 = c.AssetSymbol8 }
+	if c.AssetSymbol9 != 0 { foo.CEntry.AssetSymbol9 = c.AssetSymbol9 }
+	if c.AssetSymbol11 != 0 { foo.CEntry.AssetSymbol11 = c.AssetSymbol11 }
+	if c.AssetSymbol12 != 0 { foo.CEntry.AssetSymbol12 = c.AssetSymbol12 }
+	if c.AssetSymbol14 != 0 { foo.CEntry.AssetSymbol14 = c.AssetSymbol14 }
+	if c.AssetSymbol15 != 0 { foo.CEntry.AssetSymbol15 = c.AssetSymbol15 }
+	return foo, nil
+}
+
+// FromCosmeticEntry populates a CBracer from a raw CosmeticEntry.
+func (c *CBracer) FromCosmeticEntry(d CosmeticEntry) error {
+	c.InternalName = string(bytes.TrimRight(d.CEntry.InternalNameString[:], "\x00"))
+	c.DisplayName = string(bytes.TrimRight(d.CEntry.DisplayNameString[:], "\x00"))
+	c.Description = string(bytes.TrimRight(d.CEntry.DescriptionString[:], "\x00"))
+	c.Rarity = SymbolToHex(d.CEntry.RaritySymbol)
+	c.ThumbnailSymbol = SymbolToHex(d.CEntry.ThumbnailSymbol)
+	c.TextureSymbol = SymbolToHex(d.CEntry.TextureSymbol)
+
+	c.AssetSymbol5 = d.CEntry.AssetSymbol5
+	c.AssetSymbol6 = d.CEntry.AssetSymbol6
+	c.AssetSymbol8 = d.CEntry.AssetSymbol8
+	c.AssetSymbol9 = d.CEntry.AssetSymbol9
+	c.AssetSymbol11 = d.CEntry.AssetSymbol11
+	c.AssetSymbol12 = d.CEntry.AssetSymbol12
+	c.AssetSymbol14 = d.CEntry.AssetSymbol14
+	c.AssetSymbol15 = d.CEntry.AssetSymbol15
+	return nil
 }
 
 // CChassis represents a chassis (body) cosmetic item.
@@ -194,6 +300,11 @@ type CChassis struct {
 	Rarity          string
 	ThumbnailSymbol string
 	TextureSymbol   string
+
+	AssetSymbol5  int64
+	AssetSymbol6  int64
+	AssetSymbol11 int64
+	AssetSymbol12 int64
 }
 
 // ToCosmeticEntry converts a CChassis to a raw CosmeticEntry for serialization.
@@ -209,6 +320,20 @@ func (c *CChassis) ToCosmeticEntry() (CosmeticEntry, error) {
 	foo.CEntry.RaritySymbol = HexToSymbol(c.Rarity)
 	foo.CEntry.ThumbnailSymbol = HexToSymbol(c.ThumbnailSymbol)
 	foo.CEntry.TextureSymbol = HexToSymbol(c.TextureSymbol)
+
+	if c.AssetSymbol5 != 0 {
+		foo.CEntry.AssetSymbol5 = c.AssetSymbol5
+	}
+	if c.AssetSymbol6 != 0 {
+		foo.CEntry.AssetSymbol6 = c.AssetSymbol6
+	}
+	if c.AssetSymbol11 != 0 {
+		foo.CEntry.AssetSymbol11 = c.AssetSymbol11
+	}
+	if c.AssetSymbol12 != 0 {
+		foo.CEntry.AssetSymbol12 = c.AssetSymbol12
+	}
+
 	return foo, nil
 }
 
@@ -220,6 +345,12 @@ func (c *CChassis) FromCosmeticEntry(d CosmeticEntry) error {
 	c.Rarity = SymbolToHex(d.CEntry.RaritySymbol)
 	c.ThumbnailSymbol = SymbolToHex(d.CEntry.ThumbnailSymbol)
 	c.TextureSymbol = SymbolToHex(d.CEntry.TextureSymbol)
+
+	c.AssetSymbol5 = d.CEntry.AssetSymbol5
+	c.AssetSymbol6 = d.CEntry.AssetSymbol6
+	c.AssetSymbol11 = d.CEntry.AssetSymbol11
+	c.AssetSymbol12 = d.CEntry.AssetSymbol12
+
 	return nil
 }
 

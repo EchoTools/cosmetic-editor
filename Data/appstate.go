@@ -3,6 +3,7 @@ package data
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,6 +73,8 @@ type AppState struct {
 	// Persisted paths for previewing
 	CurrentOriginalAssetPath string
 	CurrentReplacementPath   string
+
+	NeedsRepack bool // Track if there are unsaved changes since last repack
 }
 
 // UpdateSidebarThumbnail refreshes the sidebar thumbnail from the local texture cache.
@@ -235,6 +238,7 @@ func (s *AppState) RefreshIndices() {
 	s.CategoryIndices = make(map[string][]int)
 	s.CategoryFiltered = make(map[string][]int)
 
+	chassisSym := int64(ToSymbol("chassis"))
 	tintSym := int64(ToSymbol("tint"))
 	titleSym := int64(ToSymbol("title"))
 	emissiveSym := int64(ToSymbol("emissive"))
@@ -245,6 +249,8 @@ func (s *AppState) RefreshIndices() {
 	medalSym := int64(ToSymbol("medal"))
 	pipSym := int64(ToSymbol("pip"))
 	patternSym := int64(ToSymbol("pattern"))
+	bracerSym := int64(ToSymbol("bracer"))
+	boosterSym := int64(ToSymbol("booster"))
 
 	for i, e := range s.CosmeticList.CosmeticEntries {
 		// Identify fanfares first
@@ -254,6 +260,12 @@ func (s *AppState) RefreshIndices() {
 		}
 
 		switch e.CEntry.CosmeticTypeSymbol {
+		case chassisSym:
+			s.CategoryIndices["Chassis"] = append(s.CategoryIndices["Chassis"], i)
+		case bracerSym:
+			s.CategoryIndices["Bracers"] = append(s.CategoryIndices["Bracers"], i)
+		case boosterSym:
+			s.CategoryIndices["Boosters"] = append(s.CategoryIndices["Boosters"], i)
 		case tintSym:
 			// Emissive check (inherited logic from main.go)
 			isEmissive := strings.Contains(strings.ToLower(string(bytes.TrimRight(e.CEntry.InternalNameString[:], "\x00"))), "emissive") ||
@@ -318,4 +330,72 @@ func (s *AppState) HandleSave(tempPath string) error {
 		return err
 	}
 	return os.WriteFile(tempPath, data, 0644)
+}
+
+// FindBaseMesh searches the extracted models/GPU subdirectories for the given hash.
+func (s *AppState) FindBaseMesh(hashHex string) (string, error) {
+	extractedPath := s.Settings.ExtractedPath
+	if extractedPath == "" {
+		extractedPath = filepath.Join(GetSettingsDir(), "pcvr-extracted") // Default fallback
+	}
+
+	gpuPath := filepath.Join(extractedPath, "GPU")
+	entries, err := os.ReadDir(gpuPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read GPU models directory (%s): %v", gpuPath, err)
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			candidate := filepath.Join(gpuPath, e.Name(), hashHex)
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("model %s not found in any GPU subfolder", hashHex)
+}
+
+// AutoSave writes changes immediately to both the primary database and the autosave temp file.
+func (s *AppState) AutoSave() error {
+	if s.IsLoadingEntry {
+		return nil // don't trigger saves while loading UI
+	}
+
+	inputDir := InputDirNamePC
+	tintFolder := TintFolderPC
+	tintFile := TintFileNamePC
+	if s.Settings.Mode == "Quest" {
+		inputDir = InputDirNameQuest
+		tintFolder = TintFolderQuest
+		tintFile = TintFileNameQuest
+	}
+
+	// 1. Save to main database file
+	dbDir := filepath.Join(GetSettingsDir(), inputDir, tintFolder)
+	os.MkdirAll(dbDir, 0755)
+	dbPath := filepath.Join(dbDir, tintFile)
+
+	errDB := s.HandleSave(dbPath)
+	
+	// 2. Save to autosave temp file
+	tempDir := filepath.Join(GetSettingsDir(), "Temp")
+	os.MkdirAll(tempDir, 0755)
+	tempFilePath := filepath.Join(tempDir, "temp_autosave.dat")
+	
+	errTemp := s.HandleSave(tempFilePath)
+	
+	if errDB == nil {
+		s.NeedsRepack = true
+		if s.StatusLabel != nil {
+			s.StatusLabel.SetText("Auto-saved changes.")
+		}
+	} else if s.StatusLabel != nil {
+		s.StatusLabel.SetText("Auto-save failed: " + errDB.Error())
+	}
+	
+	if errDB != nil {
+		return errDB
+	}
+	return errTemp
 }

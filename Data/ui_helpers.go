@@ -336,19 +336,27 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 	}
 
 	for _, folder := range sourceFolders {
-		extractedPath = FindExtractedAsset(extPath, symVal, folder)
-		if extractedPath != "" {
-			break
+		path := FindExtractedAsset(extPath, symVal, folder)
+		if path != "" {
+			info, err := os.Stat(path)
+			if err == nil && info.Size() > 16 {
+				extractedPath = path
+				break
+			}
 		}
 	}
 
 	// 2. Try input folders (newly repacked assets)
 	if extractedPath == "" {
 		for _, folder := range sourceFolders {
-			extractedPath = FindExtractedAsset(inputBase, symVal, folder)
-			if extractedPath != "" {
-				fmt.Printf("[Cache] Found repacked asset for %s at: %s\n", hexStr, extractedPath)
-				break
+			path := FindExtractedAsset(inputBase, symVal, folder)
+			if path != "" {
+				info, err := os.Stat(path)
+				if err == nil && info.Size() > 16 {
+					extractedPath = path
+					fmt.Printf("[Cache] Found repacked asset for %s at: %s\n", hexStr, extractedPath)
+					break
+				}
 			}
 		}
 	}
@@ -366,8 +374,32 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 		state.StatusLabel.SetText("Caching: " + hexStr + "...")
 	}
 
-	// Found original, convert to PNG
-	texconvPath, err := FindTool(settingsPath, "texconv.exe")
+
+
+	tempDir := filepath.Join(settingsPath, "Temp")
+	os.MkdirAll(tempDir, 0755)
+	tempDds := filepath.Join(tempDir, hexStr+".dds")
+
+	// Read source data
+	srcData, err := os.ReadFile(extractedPath)
+	if err != nil {
+		return
+	}
+
+	// Extract standard DDS by stripping Echo VR custom header if necessary
+	ddsData := srcData
+	if len(srcData) > 256 && string(srcData[256:260]) == "DDS " {
+		ddsData = srcData[256:]
+	} else if len(srcData) > 0 && string(srcData[0:4]) != "DDS " {
+		// Log missing DDS magic if neither location matches, but still try to write just in case
+		fmt.Printf("[Cache] Warning: No DDS magic found in %s\n", extractedPath)
+	}
+
+	if err := os.WriteFile(tempDds, ddsData, 0644); err != nil {
+		return
+	}
+
+	texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
 	if err != nil {
 		if state.StatusLabel != nil {
 			state.StatusLabel.SetText("texconv not found")
@@ -375,28 +407,15 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 		return
 	}
 
-	tempDir := filepath.Join(settingsPath, "Temp")
-	os.MkdirAll(tempDir, 0755)
-	tempDds := filepath.Join(tempDir, hexStr+".dds")
-
-	// Copy to temp
-	srcData, err := os.ReadFile(extractedPath)
-	if err != nil {
-		return
-	}
-	if err := os.WriteFile(tempDds, srcData, 0644); err != nil {
-		return
-	}
-
-	// Convert: keeps name but adds .png
-	outPng := filepath.Join(cacheDir, hexStr+".png")
-	cmd := exec.Command(texconvPath, "decode", tempDds, outPng)
+	// ms_texconv -ft png -o <outDir> -y <tempDds>
+	cmd := exec.Command(texconvPath, "-ft", "png", "-o", cacheDir, "-y", tempDds)
 	cmd.SysProcAttr = HiddenProcAttr()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if state.StatusLabel != nil {
 			state.StatusLabel.SetText("texconv failed for " + hexStr)
 		}
 		fmt.Printf("texconv error: %v\nOutput: %s\n", err, string(out))
+		return
 	} else {
 		if state.StatusLabel != nil {
 			state.StatusLabel.SetText("Cached: " + hexStr)
@@ -496,18 +515,22 @@ func HandlePNGThumbnailReplacement(state *AppState, symbol string, selectedPngPa
 			generatedFile = filepath.Join(tempDir, "temp_thumb_stripped.bin")
 			os.WriteFile(generatedFile, finalData, 0644)
 		} else {
-			texconvPath, err := FindTool(settingsPath, "texconv.exe")
+			texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
 			if err != nil {
 				fyne.Do(func() { dialog.ShowError(err, w) })
 				return
 			}
 			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
-			cmd := exec.Command(texconvPath, "encode", selectedPngPath, generatedFile)
+			cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", selectedPngPath)
 			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
 				return
 			}
+			// Microsoft texconv outputs to tempDir/basename(selectedPngPath).dds
+			baseName := strings.TrimSuffix(filepath.Base(selectedPngPath), filepath.Ext(selectedPngPath))
+			expectedOut := filepath.Join(tempDir, baseName+".dds")
+			os.Rename(expectedOut, generatedFile)
 		}
 
 		// 2. Repack
@@ -726,18 +749,21 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 			generatedFile = filepath.Join(tempDir, "temp_thumb_stripped.bin")
 			os.WriteFile(generatedFile, finalData, 0644)
 		} else {
-			texconvPath, err := FindTool(settingsPath, "texconv.exe")
+			texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
 			if err != nil {
 				dialog.ShowError(err, w)
 				return
 			}
 			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
-			cmd := exec.Command(texconvPath, "encode", tempPngPath, generatedFile)
+			cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", tempPngPath)
 			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w)
 				return
 			}
+			baseName := strings.TrimSuffix(filepath.Base(tempPngPath), filepath.Ext(tempPngPath))
+			expectedOut := filepath.Join(tempDir, baseName+".dds")
+			os.Rename(expectedOut, generatedFile)
 		}
 
 		absInputDir := filepath.Join(settingsPath, "input-pcvr")
@@ -799,7 +825,7 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 		tempDir := filepath.Join(settingsPath, "Temp")
 		os.MkdirAll(tempDir, 0755)
 
-		texconvPath, err := FindTool(settingsPath, "texconv.exe")
+		texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
 		if err != nil {
 			fyne.Do(func() { dialog.ShowError(err, w) })
 			return
@@ -874,12 +900,15 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 			os.WriteFile(generatedFile, ddsData, 0644)
 		} else {
 			generatedFile = filepath.Join(tempDir, "temp_replacement.dds")
-			cmd := exec.Command(texconvPath, "encode", finalPngPath, generatedFile)
+			cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", finalPngPath)
 			cmd.SysProcAttr = HiddenProcAttr()
 			if out, err := cmd.CombinedOutput(); err != nil {
 				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
 				return
 			}
+			baseName := strings.TrimSuffix(filepath.Base(finalPngPath), filepath.Ext(finalPngPath))
+			expectedOut := filepath.Join(tempDir, baseName+".dds")
+			os.Rename(expectedOut, generatedFile)
 
 			ddsData, err = os.ReadFile(generatedFile)
 			if err != nil {
@@ -924,16 +953,25 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 }
 
 // PickFolder opens a native Windows folder selection dialog using PowerShell.
-func PickFolder() (string, error) {
-	const script = `
+// It uses the OpenFileDialog hack to provide the modern Windows Explorer UI instead of the old FolderBrowserDialog.
+func PickFolder(title string) (string, error) {
+	if title == "" {
+		title = "Select Folder"
+	}
+	
+	// Escape single quotes for PowerShell
+	title = strings.ReplaceAll(title, "'", "''")
+	
+	script := fmt.Sprintf(`
 Add-Type -AssemblyName System.Windows.Forms
 $f = New-Object System.Windows.Forms.OpenFileDialog
 $f.ValidateNames = $false
 $f.CheckFileExists = $false
 $f.CheckPathExists = $true
 $f.FileName = "Folder Selection."
+$f.Title = '%s'
 if ($f.ShowDialog() -eq 'OK') { Split-Path $f.FileName }
-`
+`, title)
 	cmd := exec.Command("powershell", "-Command", script)
 	cmd.SysProcAttr = HiddenProcAttr()
 	out, err := cmd.Output()
