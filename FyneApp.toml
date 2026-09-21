@@ -1,0 +1,8 @@
+Website = "https://github.com/EchoTools/cosmetic-editor"
+
+[Details]
+Icon = "Icon.png"
+Name = "EchoVR Cosmetics"
+ID = "com.echotools.cosmeticeditor"
+Version = "1.0.0"
+Build = 2
