@@ -129,7 +129,28 @@ func main() {
 		})
 	}
 
+	// Save whenever the app leaves the foreground. Most editors only change the
+	// database in memory and rely on Repack to write it, and a headset can kill
+	// a backgrounded app (it does when it sleeps), which would lose those edits.
+	a.Lifecycle().SetOnExitedForeground(persistEdits)
+
 	a.Run()
+}
+
+// persistEdits writes the in-memory cosmetic database to the staging folder
+// and the autosave file, so the next launch resumes from it.
+func persistEdits() {
+	// Never write before the database has loaded: that would save an empty
+	// list over the real one.
+	if state == nil || len(state.CosmeticList.CosmeticEntries) == 0 {
+		return
+	}
+	if err := state.SaveCosmeticDB(); err != nil {
+		fmt.Fprintf(os.Stderr, "saving edits: %v\n", err)
+	}
+	if err := state.HandleSave(tempFilePath); err != nil {
+		fmt.Fprintf(os.Stderr, "saving autosave: %v\n", err)
+	}
 }
 
 func loadSettings() {

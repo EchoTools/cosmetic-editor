@@ -17,6 +17,9 @@ const appID = "com.echotools.cosmeticeditor"
 // is brought back to the foreground while one is already showing.
 var setupPromptOpen bool
 
+// dataReady is set once the game data has been found with access granted.
+var dataReady bool
+
 // checkQuestSetup makes sure the app can reach Echo VR's data on the headset.
 //
 // The data belongs to the game, so the app needs "All files access", which
@@ -40,6 +43,14 @@ func checkQuestSetup() {
 				promptDataNotFound()
 				return
 			}
+			// Only act when something actually changed. This runs every time
+			// the app regains focus, and on a headset that includes the system
+			// keyboard opening and closing; rebuilding the open editor then
+			// threw away whatever was half-typed in it.
+			if dataReady && state.Settings.EchoVRDataPath == found {
+				return
+			}
+			dataReady = true
 			if state.Settings.EchoVRDataPath != found {
 				state.Settings.EchoVRDataPath = found
 				saveSettings()

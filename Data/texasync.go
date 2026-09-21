@@ -104,3 +104,11 @@ func WarmPackageReader(dataDir string) {
 	}
 	go openPackageReader(dataDir)
 }
+
+// TexturesInFlight reports how many texture decodes are still running. Tests
+// use it to let background work finish before tearing the app down.
+func TexturesInFlight() int {
+	inflightMu.Lock()
+	defer inflightMu.Unlock()
+	return len(inflight)
+}
