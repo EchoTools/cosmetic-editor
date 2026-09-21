@@ -113,3 +113,16 @@ func HasPackageAsset(dataDir, typeHex, fileHex string) bool {
 	_, ok := r.index[assetKey{HexToSymbol(typeHex), HexToSymbol(fileHex)}]
 	return ok
 }
+
+// ClosePackageReader releases the open package files.  Anything that deletes or
+// rewrites package chunks has to call it first: Windows will not delete a file
+// that is open, so a revert or a repack would otherwise fail to remove the
+// chunks it is replacing.  The next read reopens the package.
+func ClosePackageReader() {
+	readerMu.Lock()
+	defer readerMu.Unlock()
+	if reader != nil && reader.pkg != nil {
+		reader.pkg.Close()
+	}
+	reader = nil
+}

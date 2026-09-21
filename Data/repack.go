@@ -75,7 +75,9 @@ func ExecuteRepackTool(state *AppState, echoDataPath string) (string, error) {
 		}
 	}
 
-	// Merge the staged files back into the install, in process.
+	// Merge the staged files back into the install, in process.  The package
+	// reader has to let go of the chunks first: the repack deletes stale ones.
+	ClosePackageReader()
 	if err := os.MkdirAll(absOutputDir, 0755); err != nil {
 		return "", err
 	}
@@ -118,7 +120,9 @@ func ShowRepackDialog(state *AppState) {
 				go func() {
 					defer loading.Hide()
 
-					// 1. Put the original manifest back.
+					// 1. Put the original manifest back.  Close the package
+					// reader first, or its open chunks cannot be deleted.
+					ClosePackageReader()
 					os.Remove(manifestPath)
 					if err := os.Rename(bakPath, manifestPath); err != nil {
 						fyne.Do(func() { dialog.ShowError(err, w) })
