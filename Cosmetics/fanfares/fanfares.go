@@ -2,10 +2,14 @@ package fanfares
 
 import (
 	"bytes"
-	"github.com/EchoTools/cosmetic-editor/Data"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/EchoTools/cosmetic-editor/Data"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -135,11 +139,32 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	f2.OnChanged = func(string) { saveSounds() }
 
 	btnSelectPng := widget.NewButtonWithIcon("Set PNG Thumbnail", theme.FileImageIcon(), func() {
-		path, err := data.PickFile("PNG Files (*.png)|*.png|All Files (*.*)|*.*")
-		if err == nil && path != "" {
+		data.PickFile(state, []string{".png"}, func(path string) {
 			data.HandlePNGThumbnailReplacement(state, state.ThumbIdEntry.Text, path, nil) // Passing nil for button since it's not the same btn
-		}
+		})
 	})
+
+	audioDir := filepath.Join("Settings", "Audio", t.InternalName)
+	var audioWidgets []fyne.CanvasObject
+	audioWidgets = append(audioWidgets, widget.NewLabelWithStyle("Fanfare Audio Files", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
+	
+	if files, err := os.ReadDir(audioDir); err == nil {
+		for _, file := range files {
+			if !file.IsDir() && strings.HasSuffix(strings.ToLower(file.Name()), ".wav") {
+				wavPath := filepath.Join(audioDir, file.Name())
+				absWavPath, _ := filepath.Abs(wavPath)
+				btn := widget.NewButtonWithIcon(fmt.Sprintf("Play %s", file.Name()), theme.MediaPlayIcon(), func() {
+					go func() {
+						cmd := exec.Command("powershell", "-c", fmt.Sprintf("(New-Object Media.SoundPlayer '%s').PlaySync()", absWavPath))
+						cmd.Run()
+					}()
+				})
+				audioWidgets = append(audioWidgets, btn)
+			}
+		}
+	} else {
+		audioWidgets = append(audioWidgets, widget.NewLabel("No audio files found for this fanfare."))
+	}
 
 	state.CategoryEditor.Objects = []fyne.CanvasObject{
 		container.NewVBox(
@@ -148,6 +173,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 				widget.NewFormItem("Fanfare Sound ID 2", f2),
 			),
 			container.NewPadded(btnSelectPng),
+			container.NewVBox(audioWidgets...),
 		),
 	}
 	state.CategoryEditor.Refresh()

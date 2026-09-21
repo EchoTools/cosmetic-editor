@@ -220,11 +220,10 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	}
 
 	selectBannerPngBtn := widget.NewButton("Select Replacement PNG", func() {
-		path, err := data.PickFile("PNG Files (*.png)|*.png|All Files (*.*)|*.*")
-		if err == nil && path != "" {
+		data.PickFile(state, []string{".png"}, func(path string) {
 			state.CurrentReplacementPath = path
 			LoadToEditor(state, realIdx) // Refresh to show replacement with potential tint
-		}
+		})
 	})
 
 	// RECONSTRUCT EDITOR UI FOR PARITY

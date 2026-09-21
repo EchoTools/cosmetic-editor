@@ -305,8 +305,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	gifPreviewImage.SetMinSize(fyne.NewSize(0, 200))
 
 	selectGifBtn := widget.NewButton("Select GIF", func() {
-		path, err := data.PickFile("GIF Files (*.gif)|*.gif|All Files (*.*)|*.*")
-		if err == nil && path != "" {
+		data.PickFile(state, []string{".gif"}, func(path string) {
 			selectedGifPath = path
 			f, _ := os.Open(path)
 			g, err := gif.DecodeAll(f)
@@ -341,7 +340,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 				frames = append(frames, img)
 			}
 			startGifPreview(frames)
-		}
+		})
 	})
 
 	replaceGifBtn = widget.NewButton("Replace GIF", func() {

@@ -199,10 +199,9 @@ func main() {
 			dialog.ShowInformation("Error", "No asset symbol focused for replacement.", w)
 			return
 		}
-		path, err := data.PickFile("PNG Files (*.png)|*.png|All Files (*.*)|*.*")
-		if err == nil && path != "" {
+		data.PickFile(state, []string{".png"}, func(path string) {
 			data.HandleTextureReplacement(state, state.CurrentAssetSymbol, path, state.ReplaceBtn, "Replacing texture...")
-		}
+		})
 	})
 
 	state.MainPreviewGroup = container.NewVBox(
@@ -345,10 +344,9 @@ func main() {
 
 		makeBrowseItem := func(entry *widget.Entry) fyne.CanvasObject {
 			browseBtn := widget.NewButton("Browse", func() {
-				path, err := data.PickFolder("Select Folder")
-				if err == nil && path != "" {
+				data.PickFolder(state, "Select Folder", func(path string) {
 					entry.SetText(fixEchoVRPath(path))
-				}
+				})
 			})
 			return container.NewBorder(nil, nil, nil, browseBtn, entry)
 		}
@@ -549,8 +547,7 @@ func main() {
 			if entries, err := os.ReadDir(extractedPath); err != nil || len(entries) == 0 {
 				dialog.ShowConfirm("Setup Required", "Please select your Echo VR folder to extract initial assets.\n\nNOTE: This extraction requires approximately 12.5GB of free disk space.", func(b bool) {
 					if b {
-						path, err := data.PickFolder("Select Echo VR Folder")
-						if err == nil && path != "" {
+						data.PickFolder(state, "Select Echo VR Folder", func(path string) {
 							state.Settings.EchoVRDataPath = fixEchoVRPath(path)
 							saveSettings()
 
@@ -570,7 +567,7 @@ func main() {
 									})
 								}
 							}()
-						}
+						})
 					}
 				}, w)
 			}
