@@ -44,8 +44,10 @@ func checkQuestSetup() {
 				state.Settings.EchoVRDataPath = found
 				saveSettings()
 			}
-			// Anything read before access was granted failed; start clean.
+			// Anything read before access was granted failed; start clean, and
+			// parse the package index now rather than on the first preview.
 			data.ClosePackageReader()
+			data.WarmPackageReader(found)
 			state.StatusLabel.SetText("Echo VR data found.")
 			if state.RefreshCurrent != nil {
 				state.RefreshCurrent(state)

@@ -549,16 +549,18 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 	loading.Show()
 
 	go func() {
-		defer loading.Hide()
+		defer fyne.Do(loading.Hide)
 
 		if len(EmbeddedTemplate) == 0 {
-			dialog.ShowError(fmt.Errorf("template_thumb.png not found! Please place it in the root directory."), w)
+			fyne.Do(func() {
+				dialog.ShowError(fmt.Errorf("template_thumb.png not found! Please place it in the root directory."), w)
+			})
 			return
 		}
 
 		img, _, err := image.Decode(bytes.NewReader(EmbeddedTemplate))
 		if err != nil {
-			dialog.ShowError(fmt.Errorf("failed to decode template: %v", err), w)
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to decode template: %v", err), w) })
 			return
 		}
 
@@ -573,43 +575,7 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 		cPrim := parseColor(primHexTxt)
 		cSec := parseColor(secHexTxt)
 
-		srcPrimary := color.RGBA{0x9F, 0x12, 0x13, 0xFF}
-		srcSecondary := color.RGBA{0xEC, 0xDB, 0x10, 0xFF}
-
-		isSimilar := func(c1, c2 color.RGBA, threshold float64) bool {
-			rDiff := float64(c1.R) - float64(c2.R)
-			gDiff := float64(c1.G) - float64(c2.G)
-			bDiff := float64(c1.B) - float64(c2.B)
-			return math.Sqrt(rDiff*rDiff+gDiff*gDiff+bDiff*bDiff) < threshold
-		}
-
-		bounds := img.Bounds()
-		dst := image.NewRGBA(bounds)
-
-		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-			for x := bounds.Min.X; x < bounds.Max.X; x++ {
-				srcC := img.At(x, y)
-				r, g, b, a := srcC.RGBA()
-				currColor := color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(a >> 8)}
-
-				finalColor := currColor
-				wasReplaced := false
-				if isSimilar(currColor, srcPrimary, 20.0) {
-					finalColor = color.RGBA{cPrim.R, cPrim.G, cPrim.B, currColor.A}
-					wasReplaced = true
-				} else if isSimilar(currColor, srcSecondary, 20.0) {
-					finalColor = color.RGBA{cSec.R, cSec.G, cSec.B, currColor.A}
-					wasReplaced = true
-				}
-
-				if wasReplaced {
-					finalColor.R = uint8(float32(finalColor.R) * 0.6)
-					finalColor.G = uint8(float32(finalColor.G) * 0.6)
-					finalColor.B = uint8(float32(finalColor.B) * 0.6)
-				}
-				dst.Set(x, y, finalColor)
-			}
-		}
+		dst := RecolorTintTemplate(img, cPrim, cSec)
 
 		if state.Platform() == PlatformQuest {
 			if _, err := StageQuestTexture(state, idStr, dst); err != nil {
@@ -632,14 +598,14 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 		var generatedFile string
 		texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
 		if err != nil {
-			dialog.ShowError(err, w)
+			fyne.Do(func() { dialog.ShowError(err, w) })
 			return
 		}
 		generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
 		cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", tempPngPath)
 		cmd.SysProcAttr = HiddenProcAttr()
 		if out, err := cmd.CombinedOutput(); err != nil {
-			dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w)
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
 			return
 		}
 		baseName := strings.TrimSuffix(filepath.Base(tempPngPath), filepath.Ext(tempPngPath))
@@ -654,7 +620,7 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 		os.MkdirAll(texDir, 0755)
 		targetTex := filepath.Join(texDir, idStr)
 		if err := os.Rename(generatedFile, targetTex); err != nil {
-			dialog.ShowError(fmt.Errorf("failed to move generated thumbnail: %w", err), w)
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to move generated thumbnail: %w", err), w) })
 			return
 		}
 
@@ -663,13 +629,13 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 
 		fi, err := os.Stat(targetTex)
 		if err != nil {
-			dialog.ShowError(fmt.Errorf("failed to stat generated thumbnail: %w", err), w)
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to stat generated thumbnail: %w", err), w) })
 			return
 		}
 		WriteMetadata(filepath.Join(metaDir, idStr), mode, "", uint32(fi.Size()))
 
 		os.Remove(tempPngPath)
-		dialog.ShowInformation("Success", "Thumbnail generated: "+idStr, w)
+		fyne.Do(func() { dialog.ShowInformation("Success", "Thumbnail generated: "+idStr, w) })
 	}()
 }
 

@@ -213,11 +213,6 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	currentEmoteInternalName = t.InternalName
 	selectedGifPath = ""
 
-	// Ensure all frames are cached for preview
-	for _, fSym := range t.EmoteFrames {
-		data.EnsureTextureCached(state, fSym)
-	}
-
 	// Resolve cache path
 	cacheDir := state.Settings.TextureCachePath
 	if cacheDir == "" {
@@ -231,6 +226,19 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	state.CancelAnim = cancel
+
+	// Decode the frames in the background. Doing it inline froze the app for
+	// every frame of the emote before anything was shown. The player below
+	// skips frames that are not ready, so the animation fills in as they
+	// arrive; switching away cancels the rest.
+	go func(ctx context.Context, frames []string) {
+		for _, f := range frames {
+			if ctx.Err() != nil {
+				return
+			}
+			data.CacheTextureQuietly(state, f)
+		}
+	}(ctx, append([]string(nil), t.EmoteFrames...))
 
 	go func(ctx context.Context) {
 		ticker := time.NewTicker(time.Second / 15)

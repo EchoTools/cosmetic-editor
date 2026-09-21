@@ -287,7 +287,18 @@ func buildUI(a fyne.App, w fyne.Window, settingsPath string) {
 	navButtons := make([]*widget.Button, len(catNames))
 
 	state.GenThumbBtn = widget.NewButtonWithIcon("Generate & Save Thumbnail", theme.FileImageIcon(), func() {
-		data.GenerateAndSaveThumbnail(state, "", "", state.ThumbIdEntry.Text)
+		// Draw the thumbnail in the selected tint's own colours. This used to
+		// pass none, so every generated thumbnail came out plain grey.
+		if state.SelectedCategory != "Tints" || state.SelectedIndex < 0 {
+			dialog.ShowInformation("Generate Thumbnail", "Select a tint first.", w)
+			return
+		}
+		first, second, ok := data.TintThumbnailColors(state.CosmeticList.CosmeticEntries[state.SelectedIndex])
+		if !ok {
+			dialog.ShowError(fmt.Errorf("this tint has no colour data"), w)
+			return
+		}
+		data.GenerateAndSaveThumbnail(state, data.ColorHex(first), data.ColorHex(second), state.ThumbIdEntry.Text)
 	})
 
 	state.ReplaceBtn = widget.NewButtonWithIcon("Replace Texture", theme.FolderOpenIcon(), func() {
@@ -340,8 +351,9 @@ func buildUI(a fyne.App, w fyne.Window, settingsPath string) {
 			showThumbCard = true
 			state.GenThumbBtn.Hide()
 		case "Chassis", "Bracers", "Boosters":
+			// Generate Thumbnail recolours the tint template, so it only
+			// makes sense for tints.
 			showThumbCard = true
-			state.GenThumbBtn.Show()
 		case "Titles":
 			showThumbImage = false
 			state.ThumbIdItem.Widget.Hide()
@@ -624,22 +636,24 @@ func buildUI(a fyne.App, w fyne.Window, settingsPath string) {
 			if data.IsAndroid() {
 				checkQuestSetup()
 			} else if !data.HasManifest(state.Settings.EchoVRDataPath) {
-				{
-					dialog.ShowConfirm("Setup Required", "Select your Echo VR folder so changes can be repacked into it.", func(b bool) {
-						if !b {
+				dialog.ShowConfirm("Setup Required", "Select your Echo VR folder so changes can be repacked into it.", func(b bool) {
+					if !b {
+						return
+					}
+					data.PickFolder(state, "Select Echo VR Folder", func(path string) {
+						resolved := data.ResolveDataPath(path, state.Platform())
+						if resolved == "" {
+							dialog.ShowError(fmt.Errorf("no Echo VR %s data found under %s", state.Platform(), path), w)
 							return
 						}
-						data.PickFolder(state, "Select Echo VR Folder", func(path string) {
-							resolved := data.ResolveDataPath(path, state.Platform())
-							if resolved == "" {
-								dialog.ShowError(fmt.Errorf("no Echo VR %s data found under %s", state.Platform(), path), w)
-								return
-							}
-							state.Settings.EchoVRDataPath = resolved
-							saveSettings()
-						})
-					}, w)
-				}
+						state.Settings.EchoVRDataPath = resolved
+						saveSettings()
+						data.WarmPackageReader(resolved)
+					})
+				}, w)
+			} else {
+				// Parse the package index now rather than on the first preview.
+				data.WarmPackageReader(state.Settings.EchoVRDataPath)
 			}
 		})
 	}()

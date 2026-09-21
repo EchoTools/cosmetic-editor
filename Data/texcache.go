@@ -200,22 +200,33 @@ func cacheViaTexconv(state *AppState, hexStr, cacheDir string) error {
 	return nil
 }
 
-// CachedTexturePath returns the preview PNG for a texture, decoding it into the
-// cache first if it is not there yet. It returns "" when the texture cannot be
-// found or decoded.
+// CachedTexturePath returns the preview PNG for a texture if it is already
+// cached. If it is not, it returns "" straight away and decodes the texture in
+// the background; when that finishes, the current editor is refreshed, provided
+// the user is still looking at the same item, and this time the preview is
+// there.
 //
 // Editors used to look for the PNG without asking for it to be made, which only
-// worked while a full extract had already filled the cache. With textures read
-// from the package on demand, nothing fills it ahead of time.
+// worked while a full extract had already filled the cache, and then to decode
+// it inline, which froze the app until it was done.
 func CachedTexturePath(state *AppState, hexStr string) string {
 	safe, err := SafeHexFilename(hexStr)
 	if err != nil || safe == "ffffffffffffffff" {
 		return ""
 	}
-	EnsureTextureCached(state, safe)
-	p := filepath.Join(state.Settings.TextureCachePath, safe+".png")
-	if _, err := os.Stat(p); err != nil {
-		return ""
+	if p, ok := cachedPreviewPath(state, safe); ok {
+		return p
 	}
-	return p
+
+	cat, idx := state.SelectedCategory, state.SelectedIndex
+	RequestTexture(state, safe, func(path string) {
+		if path == "" || state.RefreshCurrent == nil {
+			return
+		}
+		if state.SelectedCategory != cat || state.SelectedIndex != idx {
+			return // the user has moved on; do not yank the editor back
+		}
+		state.RefreshCurrent(state)
+	})
+	return ""
 }

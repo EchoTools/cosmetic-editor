@@ -75,60 +75,61 @@ type AppState struct {
 	CurrentReplacementPath   string
 
 	NeedsRepack bool // Track if there are unsaved changes since last repack
+
+	// The texture each preview image is currently meant to show, so a decode
+	// that finishes late cannot overwrite a newer selection.
+	thumbSymbol, mainSymbol int64
 }
 
-// UpdateSidebarThumbnail refreshes the sidebar thumbnail from the local texture cache.
+// UpdateSidebarThumbnail shows a texture in the sidebar thumbnail. If its
+// preview is not cached yet, the thumbnail is cleared and filled in once the
+// texture has decoded in the background.
 func (s *AppState) UpdateSidebarThumbnail(symbol int64) {
 	if s.ThumbImage == nil {
 		return
 	}
-	if symbol == 0 || symbol == -1 {
-		s.ThumbImage.Resource = nil
-		s.ThumbImage.Image = nil
-		s.ThumbImage.Refresh()
-		return
-	}
-
-	hexStr := SymbolToHex(symbol)
-	EnsureTextureCached(s, hexStr)
-	cachePath := filepath.Join(s.Settings.TextureCachePath, hexStr+".png")
-
-	if _, err := os.Stat(cachePath); err == nil {
-		res, _ := fyne.LoadResourceFromPath(cachePath)
-		s.ThumbImage.Resource = res
-		s.ThumbImage.Image = nil
-	} else {
-		s.ThumbImage.Resource = nil
-		s.ThumbImage.Image = nil
-	}
-	s.ThumbImage.Refresh()
+	s.thumbSymbol = symbol
+	s.showTexture(s.ThumbImage, symbol, func() bool { return s.thumbSymbol == symbol })
 }
 
-// UpdateMainTexture refreshes the larger texture preview from the local cache.
+// UpdateMainTexture shows a texture in the large preview, the same way.
 func (s *AppState) UpdateMainTexture(symbol int64) {
 	if s.TextureImage == nil {
 		return
 	}
+	s.mainSymbol = symbol
+	s.showTexture(s.TextureImage, symbol, func() bool { return s.mainSymbol == symbol })
+}
+
+// showTexture puts a texture's preview into img. still reports whether img is
+// still meant to show this texture: a slow decode for an item the user has
+// already moved away from must not overwrite the newer one.
+func (s *AppState) showTexture(img *canvas.Image, symbol int64, still func() bool) {
+	set := func(path string) {
+		img.Image = nil
+		img.Resource = nil
+		if path != "" {
+			img.Resource, _ = fyne.LoadResourceFromPath(path)
+		}
+		img.Refresh()
+	}
 	if symbol == 0 || symbol == -1 {
-		s.TextureImage.Resource = nil
-		s.TextureImage.Image = nil
-		s.TextureImage.Refresh()
+		set("")
 		return
 	}
-
 	hexStr := SymbolToHex(symbol)
-	EnsureTextureCached(s, hexStr)
-	cachePath := filepath.Join(s.Settings.TextureCachePath, hexStr+".png")
-
-	if _, err := os.Stat(cachePath); err == nil {
-		res, _ := fyne.LoadResourceFromPath(cachePath)
-		s.TextureImage.Resource = res
-		s.TextureImage.Image = nil
-	} else {
-		s.TextureImage.Resource = nil
-		s.TextureImage.Image = nil
+	if safe, err := SafeHexFilename(hexStr); err == nil {
+		if p, ok := cachedPreviewPath(s, safe); ok {
+			set(p)
+			return
+		}
 	}
-	s.TextureImage.Refresh()
+	set("") // do not leave the previous item's picture up while decoding
+	RequestTexture(s, hexStr, func(path string) {
+		if still() {
+			set(path)
+		}
+	})
 }
 
 // ClearUI resets the common sidebar fields and clears any category-specific editor content.
