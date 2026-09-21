@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"fyne.io/fyne/v2"
@@ -46,31 +45,13 @@ func CopyRecursive(src, dst string) error {
 	})
 }
 
-// RunExtract handles the extraction of assets from the game files.
-func RunExtract(state *AppState, echoDataPath string, exports string) error {
-	settingsPath := GetSettingsDir()
-	toolPath, err := FindTool(settingsPath, "evrFileTools.exe")
-	if err != nil {
+// RunExtract pulls the cosmetic database and textures out of the install.
+func RunExtract(state *AppState, echoDataPath string) error {
+	extractDir := filepath.Join(GetSettingsDir(), state.Platform().ExtractedDirName())
+	if err := os.MkdirAll(extractDir, 0755); err != nil {
 		return err
 	}
-
-	extractDir := filepath.Join(settingsPath, ExtractedDirName)
-	os.MkdirAll(extractDir, 0755)
-
-	cmd := exec.Command(toolPath,
-		"-mode", "extract",
-		"-package", PackageName,
-		"-data", echoDataPath,
-		"-output", extractDir,
-		"-export", exports,
-		"-force",
-	)
-	cmd.SysProcAttr = HiddenProcAttr()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("extraction failed: %v\nOutput: %s", err, string(out))
-	}
-	return nil
+	return ExtractPackage(echoDataPath, extractDir, ExtractTints, ExtractTextures)
 }
 
 // ExecuteRepackTool handles the building and repacking of modified assets.
@@ -103,29 +84,15 @@ func ExecuteRepackTool(state *AppState, echoDataPath string) (string, error) {
 		}
 	}
 
-	// Run evrFileTools
-	os.MkdirAll(absOutputDir, 0755)
-	toolPath, err := FindTool(settingsPath, "evrFileTools.exe")
-	if err != nil {
+	// Merge the staged files back into the install, in process.
+	if err := os.MkdirAll(absOutputDir, 0755); err != nil {
 		return "", err
 	}
-
-	cmd := exec.Command(toolPath,
-		"-mode", "build",
-		"-package", PackageName,
-		"-data", echoDataPath,
-		"-input", absInputDir,
-		"-output", absOutputDir,
-		"-force",
-		"-quick",
-	)
-	cmd.SysProcAttr = HiddenProcAttr()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(out), fmt.Errorf("repack failed: %v\nOutput: %s", err, string(out))
+	if err := RepackInto(echoDataPath, absInputDir); err != nil {
+		return "", err
 	}
 	state.NeedsRepack = false // Reset repack tracking
-	return string(out), nil
+	return fmt.Sprintf("Repacked %s into %s", filepath.Base(absInputDir), echoDataPath), nil
 }
 
 // ShowRepackDialog displays the multi-step repack UI to the user.
@@ -152,7 +119,7 @@ func ShowRepackDialog(state *AppState) {
 				loading := dialog.NewCustom("Extracting...", "Cancel", widget.NewProgressBarInfinite(), w)
 				loading.Show()
 				go func() {
-					err := RunExtract(state, state.Settings.EchoVRDataPath, "tints,textures,models")
+					err := RunExtract(state, state.Settings.EchoVRDataPath)
 					loading.Hide()
 					if err != nil {
 						dialog.ShowError(err, w)

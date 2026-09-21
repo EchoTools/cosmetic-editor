@@ -311,7 +311,7 @@ func main() {
 		loading := dialog.NewCustom("Extracting Assets...", "Cancel", widget.NewProgressBarInfinite(), w)
 		loading.Show()
 		go func() {
-			err := data.RunExtract(state, state.Settings.EchoVRDataPath, "tints,textures,models")
+			err := data.RunExtract(state, state.Settings.EchoVRDataPath)
 			loading.Hide()
 			if err != nil {
 				dialog.ShowError(err, w)
@@ -557,7 +557,7 @@ func main() {
 							loading := dialog.NewCustom("Extracting Initial Assets...", "Please Wait", widget.NewProgressBarInfinite(), w)
 							loading.Show()
 							go func() {
-								err := data.RunExtract(state, state.Settings.EchoVRDataPath, "tints,textures,models")
+								err := data.RunExtract(state, state.Settings.EchoVRDataPath)
 								loading.Hide()
 								if err != nil {
 									fyne.Do(func() { dialog.ShowError(err, w) })
