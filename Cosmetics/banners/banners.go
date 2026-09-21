@@ -2,10 +2,9 @@ package banners
 
 import (
 	"bytes"
-	"github.com/EchoTools/cosmetic-editor/Data"
 	"fmt"
+	"github.com/EchoTools/cosmetic-editor/Data"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -165,7 +164,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	curBannerOrigPath = ""
 	if t.TextureSymbol != 0 {
 		hexStr := data.SymbolToHex(t.TextureSymbol)
-		p := filepath.Join(state.Settings.TextureCachePath, hexStr+".png")
+		p := data.CachedTexturePath(state, hexStr)
 		if _, err := os.Stat(p); err == nil {
 			curBannerOrigPath = p
 		}

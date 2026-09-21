@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"github.com/EchoTools/cosmetic-editor/Data"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -103,7 +102,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.CurrentAssetSymbol = data.SymbolToHex(t.TextureSymbol)
 	state.CurrentOriginalAssetPath = ""
 	if t.TextureSymbol != 0 {
-		p := filepath.Join(state.Settings.TextureCachePath, data.SymbolToHex(t.TextureSymbol)+".png")
+		p := data.CachedTexturePath(state, data.SymbolToHex(t.TextureSymbol))
 		if _, err := os.Stat(p); err == nil {
 			state.CurrentOriginalAssetPath = p
 		}

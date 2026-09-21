@@ -199,3 +199,23 @@ func cacheViaTexconv(state *AppState, hexStr, cacheDir string) error {
 	}
 	return nil
 }
+
+// CachedTexturePath returns the preview PNG for a texture, decoding it into the
+// cache first if it is not there yet. It returns "" when the texture cannot be
+// found or decoded.
+//
+// Editors used to look for the PNG without asking for it to be made, which only
+// worked while a full extract had already filled the cache. With textures read
+// from the package on demand, nothing fills it ahead of time.
+func CachedTexturePath(state *AppState, hexStr string) string {
+	safe, err := SafeHexFilename(hexStr)
+	if err != nil || safe == "ffffffffffffffff" {
+		return ""
+	}
+	EnsureTextureCached(state, safe)
+	p := filepath.Join(state.Settings.TextureCachePath, safe+".png")
+	if _, err := os.Stat(p); err != nil {
+		return ""
+	}
+	return p
+}
