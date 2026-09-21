@@ -427,30 +427,34 @@ func EnsureTextureCached(state *AppState, hexStr string) {
 }
 
 const (
-	PackageName = "48037dc70b0ecab2"
-
 	// Base Directories
-	ExtractedDirName = "pcvr-extracted"
-	OutputDirName    = "output-both"
-	BackupDirName    = "Backup"
+	OutputDirName = "output-both"
+	BackupDirName = "Backup"
+)
 
-	// PCVR Constants
-	InputDirNamePC    = "input-pcvr"
-	TintFolderPC      = "32f30fe361939dee"
-	TintFileNamePC    = "43934c379cf1e366"
-	ThumbTexFolderPC  = "beac1969cb7b8861"
-	ThumbMetaFolderPC = "4a4c32c49300b8a0"
-	TexTexFolderPC    = "beac1969cb7b8861"
-	TexMetaFolderPC   = "4a4c32c49300b8a0"
+// The per-platform folder and asset hashes below are derived from the authored
+// resource type names rather than written out, so PC and Quest cannot drift
+// apart.  See platform.go; Data/platform_test.go pins every one of them to the
+// values verified from the shipped game binaries.
+var (
+	// PCVR
+	InputDirNamePC    = PlatformPC.InputDirName()
+	ExtractedDirName  = PlatformPC.ExtractedDirName()
+	TintFolderPC      = PlatformPC.CosmeticDBTypeHash()
+	TintFileNamePC    = PlatformPC.CosmeticDBAssetHash()
+	ThumbTexFolderPC  = PlatformPC.TextureGPUTypeHash()
+	ThumbMetaFolderPC = PlatformPC.TextureMetaTypeHash()
+	TexTexFolderPC    = ThumbTexFolderPC
+	TexMetaFolderPC   = ThumbMetaFolderPC
 
-	// Quest Constants
-	InputDirNameQuest    = "quest-input"
-	TintFolderQuest      = "24cbfd54e9a7f2ea"
-	TintFileNameQuest    = "bb75979f708e523b"
-	ThumbTexFolderQuest  = "489bb35d53ca50e9"
-	ThumbMetaFolderQuest = "e2efe7289d5985b8"
-	TexTexFolderQuest    = "489bb35d53ca50e9"
-	TexMetaFolderQuest   = "e2efe7289d5985b8"
+	// Quest
+	InputDirNameQuest    = PlatformQuest.InputDirName()
+	TintFolderQuest      = PlatformQuest.CosmeticDBTypeHash()
+	TintFileNameQuest    = PlatformQuest.CosmeticDBAssetHash()
+	ThumbTexFolderQuest  = PlatformQuest.TextureGPUTypeHash()
+	ThumbMetaFolderQuest = PlatformQuest.TextureMetaTypeHash()
+	TexTexFolderQuest    = ThumbTexFolderQuest
+	TexMetaFolderQuest   = ThumbMetaFolderQuest
 )
 
 // HandlePNGThumbnailReplacement allows direct replacement of a thumbnail with a PNG file.

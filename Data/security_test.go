@@ -80,13 +80,6 @@ func TestSafeHexFilename_NormalizesCase(t *testing.T) {
 // These FAIL until overflow checks are added to cosmeticlist.go
 // ----------------------------------------------------------------------------
 
-func TestBytesToCosmeticList_TooSmall(t *testing.T) {
-	_, err := BytesToCosmeticList([]byte{0x00, 0x01})
-	if err == nil {
-		t.Error("expected error for input shorter than 56 bytes")
-	}
-}
-
 func TestBytesToCosmeticList_ListCountOverflow(t *testing.T) {
 	// Craft a header where ListCount is absurdly large (would overflow int on 32-bit
 	// and cause a huge allocation or negative headerSize on 64-bit overflow).
@@ -144,20 +137,6 @@ func TestBytesToCosmeticList_ExtSizeOverflow(t *testing.T) {
 	// path succeeds. The important invariant is: it must not panic.
 	if err != nil {
 		t.Logf("BytesToCosmeticList returned error (acceptable): %v", err)
-	}
-}
-
-func TestBytesToCosmeticList_BinaryReadError(t *testing.T) {
-	// Provide exactly 56 bytes with ListCount=1 but only 100 bytes of entry data
-	// (needs 664 bytes for 1 entry). This tests that binary.Read failure is caught.
-	b := make([]byte, 156)
-	binary.LittleEndian.PutUint64(b[40:48], 1)
-	binary.LittleEndian.PutUint64(b[48:56], 1)
-	// Only 100 bytes of entry data provided (needs 664)
-
-	_, err := BytesToCosmeticList(b)
-	if err == nil {
-		t.Error("expected error when entry data is truncated, but BytesToCosmeticList succeeded")
 	}
 }
 

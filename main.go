@@ -49,15 +49,6 @@ var embeddedIcon []byte
 //go:embed Data/template_thumb.png
 var embeddedTemplate []byte
 
-//go:embed Data/backend_chassis_builder.py
-var embeddedBackendChassisBuilder []byte
-
-//go:embed Data/blender_chassis_processor.py
-var embeddedBlenderChassisProcessor []byte
-
-//go:embed Data/evr_mesh_importer.zip
-var embeddedEvrMeshImporter []byte
-
 const (
 	SettingsDirName = "settings"
 )
@@ -92,14 +83,6 @@ func main() {
 	tempDir := filepath.Join(settingsPath, "Temp")
 	os.MkdirAll(tempDir, 0755)
 	tempFilePath = filepath.Join(tempDir, "temp_autosave.dat")
-	
-	scriptsDir := filepath.Join(tempDir, "Scripts")
-	os.MkdirAll(scriptsDir, 0755)
-	
-	// Extract bundled dependencies
-	os.WriteFile(filepath.Join(scriptsDir, "backend_chassis_builder.py"), embeddedBackendChassisBuilder, 0644)
-	os.WriteFile(filepath.Join(scriptsDir, "blender_chassis_processor.py"), embeddedBlenderChassisProcessor, 0644)
-	os.WriteFile(filepath.Join(scriptsDir, "evr_mesh_importer.zip"), embeddedEvrMeshImporter, 0644)
 
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
@@ -338,7 +321,7 @@ func main() {
 			}
 		}()
 	})
-	
+
 	extractedPath := state.Settings.ExtractedPath
 	if extractedPath == "" {
 		extractedPath = filepath.Join(data.GetSettingsDir(), data.ExtractedDirName)
@@ -397,10 +380,10 @@ func main() {
 					dialog.ShowError(fmt.Errorf("failed to parse original stock data: %v", err), w)
 					return
 				}
-				
+
 				state.CosmeticList = cList
 				state.AutoSave()
-				
+
 				state.RefreshIndices()
 				state.ClearUI()
 				selectTab(0)
@@ -557,7 +540,7 @@ func main() {
 			state.RefreshIndices()
 			state.ClearUI()
 			selectTab(0)
-			
+
 			// Initial extraction check
 			extractedPath := state.Settings.ExtractedPath
 			if extractedPath == "" {
@@ -570,7 +553,7 @@ func main() {
 						if err == nil && path != "" {
 							state.Settings.EchoVRDataPath = fixEchoVRPath(path)
 							saveSettings()
-							
+
 							loading := dialog.NewCustom("Extracting Initial Assets...", "Please Wait", widget.NewProgressBarInfinite(), w)
 							loading.Show()
 							go func() {
