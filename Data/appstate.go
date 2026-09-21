@@ -345,15 +345,63 @@ func (s *AppState) FindBaseMesh(hashHex string) (string, error) {
 		return "", fmt.Errorf("failed to read GPU models directory (%s): %v", gpuPath, err)
 	}
 
+	strippedHash := strings.TrimLeft(hashHex, "0")
+
 	for _, e := range entries {
 		if e.IsDir() {
 			candidate := filepath.Join(gpuPath, e.Name(), hashHex)
 			if _, err := os.Stat(candidate); err == nil {
 				return candidate, nil
 			}
+
+			if strippedHash != "" && strippedHash != hashHex {
+				candidateStripped := filepath.Join(gpuPath, e.Name(), strippedHash)
+				if _, err := os.Stat(candidateStripped); err == nil {
+					return candidateStripped, nil
+				}
+			}
 		}
 	}
 	return "", fmt.Errorf("model %s not found in any GPU subfolder", hashHex)
+}
+
+// Platform returns the platform this session is editing for.
+func (s *AppState) Platform() Platform { return ParsePlatform(s.Settings.Mode) }
+
+// StagingDir is the folder modified assets are written to before a repack.
+func (s *AppState) StagingDir() string {
+	return filepath.Join(GetSettingsDir(), s.Platform().InputDirName())
+}
+
+// CosmeticDBPaths lists every staged file the cosmetic database must be written
+// to for the current platform.
+func (s *AppState) CosmeticDBPaths() []string {
+	p := s.Platform()
+	dir := filepath.Join(s.StagingDir(), p.CosmeticDBTypeHash())
+	hashes := p.CosmeticDBAssetHashes()
+	out := make([]string, len(hashes))
+	for i, h := range hashes {
+		out[i] = filepath.Join(dir, h)
+	}
+	return out
+}
+
+// SaveCosmeticDB serialises the cosmetic list to every asset name the platform
+// publishes it under.
+func (s *AppState) SaveCosmeticDB() error {
+	b, err := CosmeticListToBytes(s.CosmeticList)
+	if err != nil {
+		return err
+	}
+	for _, path := range s.CosmeticDBPaths() {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, b, 0644); err != nil {
+			return fmt.Errorf("writing %s: %w", filepath.Base(path), err)
+		}
+	}
+	return nil
 }
 
 // AutoSave writes changes immediately to both the primary database and the autosave temp file.
@@ -362,29 +410,18 @@ func (s *AppState) AutoSave() error {
 		return nil // don't trigger saves while loading UI
 	}
 
-	inputDir := InputDirNamePC
-	tintFolder := TintFolderPC
-	tintFile := TintFileNamePC
-	if s.Settings.Mode == "Quest" {
-		inputDir = InputDirNameQuest
-		tintFolder = TintFolderQuest
-		tintFile = TintFileNameQuest
-	}
+	// 1. Save to the staged database file(s).  On Quest the database ships
+	// under two asset names and the runtime picks one by device spec tier, so
+	// writing only one leaves the edit inert on some headsets.
+	errDB := s.SaveCosmeticDB()
 
-	// 1. Save to main database file
-	dbDir := filepath.Join(GetSettingsDir(), inputDir, tintFolder)
-	os.MkdirAll(dbDir, 0755)
-	dbPath := filepath.Join(dbDir, tintFile)
-
-	errDB := s.HandleSave(dbPath)
-	
 	// 2. Save to autosave temp file
 	tempDir := filepath.Join(GetSettingsDir(), "Temp")
 	os.MkdirAll(tempDir, 0755)
 	tempFilePath := filepath.Join(tempDir, "temp_autosave.dat")
-	
+
 	errTemp := s.HandleSave(tempFilePath)
-	
+
 	if errDB == nil {
 		s.NeedsRepack = true
 		if s.StatusLabel != nil {
@@ -393,7 +430,7 @@ func (s *AppState) AutoSave() error {
 	} else if s.StatusLabel != nil {
 		s.StatusLabel.SetText("Auto-save failed: " + errDB.Error())
 	}
-	
+
 	if errDB != nil {
 		return errDB
 	}

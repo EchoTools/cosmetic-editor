@@ -49,17 +49,30 @@ func TestGPUTypeHashesMatchVerifiedValues(t *testing.T) {
 	}
 }
 
-// TestCosmeticDBAssetNamesDiffer guards the one asset whose authored *name*
-// differs between platforms rather than just its type suffix.  Shipping the PC
-// name to a Quest build writes a file the game never reads.
-func TestCosmeticDBAssetNamesDiffer(t *testing.T) {
-	if got := PlatformPC.CosmeticDBAssetHash(); got != "43934c379cf1e366" {
-		t.Errorf("PC cosmetic DB asset = %s, want 43934c379cf1e366 (r14_glb_global_root)", got)
+// TestCosmeticDBAssetNames pins the asset names the database is published
+// under.  A Quest build ships two, and an edit written to only one of them
+// applies on some headsets and silently does nothing on others, so the count
+// matters as much as the hashes.
+func TestCosmeticDBAssetNames(t *testing.T) {
+	pc := PlatformPC.CosmeticDBAssetHashes()
+	if len(pc) != 1 || pc[0] != "43934c379cf1e366" {
+		t.Errorf("PC cosmetic DB assets = %v, want [43934c379cf1e366] (r14_glb_global_root)", pc)
 	}
-	if got := PlatformQuest.CosmeticDBAssetHash(); got != "bb75979f708e523b" {
-		t.Errorf("Quest cosmetic DB asset = %s, want bb75979f708e523b (r14_glb_global_root_lowspec)", got)
+
+	quest := PlatformQuest.CosmeticDBAssetHashes()
+	want := []string{"43934c379cf1e366", "bb75979f708e523b"}
+	if len(quest) != len(want) {
+		t.Fatalf("Quest cosmetic DB assets = %v, want %v", quest, want)
 	}
-	if PlatformPC.CosmeticDBAssetHash() == PlatformQuest.CosmeticDBAssetHash() {
-		t.Fatal("platforms must not share a cosmetic DB asset name")
+	for i := range want {
+		if quest[i] != want[i] {
+			t.Errorf("Quest cosmetic DB asset %d = %s, want %s", i, quest[i], want[i])
+		}
+	}
+
+	// The lowspec variant is the one the PC build does not have, and it is the
+	// half that is easy to forget.
+	if PlatformQuest.CosmeticDBAssetHashes()[1] == PlatformPC.CosmeticDBAssetHashes()[0] {
+		t.Error("the Quest-only asset name must differ from the PC one")
 	}
 }

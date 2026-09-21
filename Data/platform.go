@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -59,17 +60,35 @@ func (p Platform) GPUTypeHash(baseName string) string {
 	return SymbolToHex(int64(ToSymbol(baseName + p.TypeSuffix() + "GPU")))
 }
 
-// CosmeticDBAssetName is the authored name of the asset holding the cosmetic
-// database.  This is the one place where the two platforms disagree on the
-// asset itself rather than merely on its type: PC ships "r14_glb_global_root"
-// and Quest ships the reduced "r14_glb_global_root_lowspec".  Writing the PC
-// name into a Quest build produces a file the game never loads.
-func (p Platform) CosmeticDBAssetName() string {
+// CosmeticDBAssetNames lists the authored asset names the cosmetic database is
+// published under, in the order they should be written.
+//
+// PC ships one: "r14_glb_global_root".  The Quest build ships that name *and*
+// "r14_glb_global_root_lowspec", and in a real Quest extract the two files are
+// byte-identical to each other and to PC's.  Which one the runtime loads
+// depends on the device's spec tier, so an edit written to only one of them
+// takes effect on some headsets and silently does nothing on others.  Both are
+// therefore written.
+func (p Platform) CosmeticDBAssetNames() []string {
 	if p == PlatformQuest {
-		return "r14_glb_global_root_lowspec"
+		return []string{"r14_glb_global_root", "r14_glb_global_root_lowspec"}
 	}
-	return "r14_glb_global_root"
+	return []string{"r14_glb_global_root"}
 }
+
+// CosmeticDBAssetHashes maps CosmeticDBAssetNames to on-disk filenames.
+func (p Platform) CosmeticDBAssetHashes() []string {
+	names := p.CosmeticDBAssetNames()
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = SymbolToHex(int64(ToSymbol(n)))
+	}
+	return out
+}
+
+// CosmeticDBAssetName is the primary asset name for this platform: the one the
+// editor reads from when loading.
+func (p Platform) CosmeticDBAssetName() string { return p.CosmeticDBAssetNames()[0] }
 
 // CosmeticDBAssetHash is CosmeticDBAssetName hashed to its on-disk filename.
 func (p Platform) CosmeticDBAssetHash() string {
@@ -171,9 +190,6 @@ func PackageChunkPath(dataDir string, n int) string {
 }
 
 // CountPackageChunks reports how many package chunks the install currently has.
-// PC builds ship three (_0.._2) and Quest ships one (_0), which is why a repack
-// appends a different chunk number on each platform; assuming PC's _3 on a
-// Quest leaves an orphaned file the manifest never points at.
 func CountPackageChunks(dataDir string) int {
 	n := 0
 	for {
@@ -182,4 +198,45 @@ func CountPackageChunks(dataDir string) int {
 		}
 		n++
 	}
+}
+
+// StockPackageChunks is how many package chunks a clean install ships with.
+// A PC build ships three (_0.._2), so the first repack appends _3; a Quest
+// build ships one (_0), so it appends _1.  This is only a fallback for an
+// install whose backup predates the chunk-count record: the count written
+// beside the manifest backup is authoritative, because an install that has
+// already been repacked has more chunks than it shipped with.
+func (p Platform) StockPackageChunks() int {
+	if p == PlatformQuest {
+		return 1
+	}
+	return 3
+}
+
+// chunkCountSuffix names the file recording how many chunks existed when the
+// manifest backup was taken.
+const chunkCountSuffix = ".chunks"
+
+// RecordStockChunkCount notes how many package chunks exist alongside a freshly
+// taken manifest backup, so a later revert knows which chunks a repack added.
+// The manifest itself cannot answer this: it is a zstd container, so the count
+// is not readable at a fixed offset, and parsing it to revert would make revert
+// depend on the manifest version.
+func RecordStockChunkCount(manifestBackupPath string, count int) error {
+	return os.WriteFile(manifestBackupPath+chunkCountSuffix,
+		[]byte(fmt.Sprintf("%d\n", count)), 0644)
+}
+
+// StockChunkCount returns the chunk count recorded beside a manifest backup,
+// falling back to what the platform ships with when no record exists.
+func StockChunkCount(manifestBackupPath string, p Platform) int {
+	b, err := os.ReadFile(manifestBackupPath + chunkCountSuffix)
+	if err != nil {
+		return p.StockPackageChunks()
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || n <= 0 {
+		return p.StockPackageChunks()
+	}
+	return n
 }

@@ -76,30 +76,13 @@ func RunExtract(state *AppState, echoDataPath string, exports string) error {
 // ExecuteRepackTool handles the building and repacking of modified assets.
 func ExecuteRepackTool(state *AppState, echoDataPath string) (string, error) {
 	settingsPath := GetSettingsDir()
-	inputDir := InputDirNamePC
-	outputDir := OutputDirName
-	tintFolder := TintFolderPC
-	tintFile := TintFileNamePC
-	if state.Settings.Mode == "Quest" {
-		inputDir = InputDirNameQuest
-		tintFolder = TintFolderQuest
-		tintFile = TintFileNameQuest
-	}
+	absInputDir := state.StagingDir()
+	absOutputDir := filepath.Join(settingsPath, OutputDirName)
 
-	absInputDir := filepath.Join(settingsPath, inputDir)
-	absOutputDir := filepath.Join(settingsPath, outputDir)
-
-	// Prepare Input File
-	tintDir := filepath.Join(absInputDir, tintFolder)
-	os.MkdirAll(tintDir, 0755)
-	outFile := filepath.Join(tintDir, tintFile)
-
-	b, err := CosmeticListToBytes(state.CosmeticList)
-	if err != nil {
-		return "", fmt.Errorf("failed to serialize tint data: %v", err)
-	}
-	if err := os.WriteFile(outFile, b, 0644); err != nil {
-		return "", fmt.Errorf("failed to write data file: %v", err)
+	// Stage the cosmetic database under every asset name this platform
+	// publishes it as.
+	if err := state.SaveCosmeticDB(); err != nil {
+		return "", fmt.Errorf("failed to stage cosmetic database: %v", err)
 	}
 
 	// 1. Specialized Backup logic: Backup original manifest BEFORE tool runs
@@ -109,7 +92,14 @@ func ExecuteRepackTool(state *AppState, echoDataPath string) (string, error) {
 		// Only create if it doesn't exist to preserve original state
 		if data, err := os.ReadFile(manifestPath); err == nil {
 			os.WriteFile(bakPath, data, 0644)
-			fmt.Printf("[Backup] Created manifest backup: %s\n", bakPath)
+			// Record how many chunks the install had before we appended any,
+			// so a later revert removes exactly the ones we added.  This has to
+			// happen here, while the install is still untouched.
+			stock := CountPackageChunks(echoDataPath)
+			if err := RecordStockChunkCount(bakPath, stock); err != nil {
+				fmt.Printf("[Backup] Could not record chunk count: %v\n", err)
+			}
+			fmt.Printf("[Backup] Created manifest backup: %s (%d stock chunks)\n", bakPath, stock)
 		}
 	}
 
@@ -198,9 +188,20 @@ func ShowRepackDialog(state *AppState) {
 							fyne.Do(func() { dialog.ShowError(err, w) })
 							return
 						}
-						// 3. Delete _3 package chunk
-						chunk3 := filepath.Join(state.Settings.EchoVRDataPath, "packages", PackageName+"_3")
-						os.Remove(chunk3)
+						// 3. Delete the chunks the repack appended.  A PC
+						// install ships _0.._2 so the first repack appends _3,
+						// while a Quest install ships only _0 and appends _1;
+						// deleting a fixed _3 removes the wrong file on Quest
+						// and misses later chunks on a twice-repacked PC.
+						stock := StockChunkCount(bakPath, state.Platform())
+						for n := stock; ; n++ {
+							chunk := PackageChunkPath(state.Settings.EchoVRDataPath, n)
+							if _, err := os.Stat(chunk); err != nil {
+								break
+							}
+							os.Remove(chunk)
+						}
+						os.Remove(bakPath + chunkCountSuffix)
 
 						fyne.Do(func() {
 							dialog.ShowInformation("Success", "Manifest restored and modified package chunks removed.", w)
