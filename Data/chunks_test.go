@@ -109,3 +109,43 @@ func TestRevertRemovesOnlyAppendedChunks(t *testing.T) {
 		})
 	}
 }
+
+// TestBackupAndRevertEachInstall covers a headset with Echo VR under both
+// Android/media and /sdcard/readyatdawn: each install gets its own backup and
+// chunk record, and reverting puts each back as it was.
+func TestBackupAndRevertEachInstall(t *testing.T) {
+	var installs []string
+	for i, stock := range []int{1, 2} {
+		dir := filepath.Join(t.TempDir(), "install", string(rune('a'+i)))
+		makeInstall(t, dir)
+		os.MkdirAll(filepath.Join(dir, "packages"), 0755)
+		for n := 0; n < stock; n++ {
+			os.WriteFile(PackageChunkPath(dir, n), []byte("x"), 0644)
+		}
+		installs = append(installs, dir)
+	}
+	for _, dir := range installs {
+		backupManifest(dir)
+		// What a repack does: rewrite the manifest and append a chunk.
+		os.WriteFile(ManifestPath(dir), []byte("repacked"), 0644)
+		os.WriteFile(PackageChunkPath(dir, CountPackageChunks(dir)), []byte("x"), 0644)
+	}
+	// A second repack must not overwrite the backup of the untouched install.
+	for _, dir := range installs {
+		backupManifest(dir)
+	}
+	for i, dir := range installs {
+		if err := revertInstall(dir, PlatformQuest); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := CountPackageChunks(dir), i+1; got != want {
+			t.Errorf("install %d: %d chunks after revert, want %d", i, got, want)
+		}
+		if b, _ := os.ReadFile(ManifestPath(dir)); string(b) != "m" {
+			t.Errorf("install %d: manifest not restored, got %q", i, b)
+		}
+		if _, err := os.Stat(ManifestPath(dir) + ".bak"); err == nil {
+			t.Errorf("install %d: backup left behind", i)
+		}
+	}
+}

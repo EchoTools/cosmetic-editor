@@ -20,8 +20,8 @@ The Cosmetic Editor is narrower in scope (cosmetics only, not all textures) but 
 | Tints | No | Yes (primary/secondary RGB) |
 | Emissives | No | Yes (gradients, scroll presets) |
 | Emotes | No | Yes (GIF import, frame slicing, export) |
-| ADB push (Quest) | Yes | Not yet |
-| Extraction/repacking | Yes (via evrFileTools) | Yes (via evrFileTools) |
+| Runs on Quest | No | Yes (Android APK, edits and repacks on the headset) |
+| Extraction/repacking | Yes (via evrFileTools) | Repacking built in (ported evrFileTools) |
 
 ### Cosmetic Categories
 
@@ -38,22 +38,21 @@ Unused assets exist for bracers, chassis, and boosters — these are present in 
 ## How It Works
 
 1. Point the editor at your Echo VR `_data` directory
-2. Click **Extract Assets** to cache original textures to `Settings/texture_cache/` (shared with Texture Editor)
+2. Previews are decoded straight from the game's package files and cached in `Settings/texture_cache/`
 3. Edit cosmetics — changes are held in memory as temp `.bin` files
 4. **Save Data File** — writes metadata changes (names, rarities, descriptions) to the game's cosmetic dictionary, updating the header if sizes changed
-5. **Repack & Apply** — builds modified binary assets via `evrFileTools` and injects them into the game's package files
+5. **Repack & Apply** — appends the modified assets to the game's package files (evrFileTools, built in). On a Quest with Echo VR in both `Android/media/com.readyatdawn.r15` and `/sdcard/readyatdawn`, both installs are modded
 6. **Revert** — restores the original manifest and cleans up modifications (`.bak` files are created automatically before any write)
 
 ### File Conversion Pipeline
 
-PNG to DDS conversion uses `texconv.exe` (in `Settings/`). The texture cache (~12k files) takes about 5 minutes to build on first run.
+On PC, PNG to DDS conversion uses `ms_texconv.exe` (in `Settings/`). On Quest, textures are encoded to ASTC in process (astc-encoder, built in) at the original texture's size and mip count.
 
 ## Requirements
 
-- `evrFileTools.exe` in the `Settings/` folder
-- `texconv.exe` in the `Settings/` folder
 - Echo VR game data (`_data` directory)
-- Windows (native), Quest support is work-in-progress
+- Windows: `ms_texconv.exe` in the `Settings/` folder (included)
+- Quest: install the APK and allow "All files access" when asked
 
 ### Quest Status
 
@@ -61,11 +60,19 @@ PC texture modifications work fully. Quest cosmetic modifications (e.g. tags) cu
 
 ## Building
 
+Windows (needs cgo, e.g. TDM-GCC, for the built-in ASTC encoder):
+
 ```bash
-go build -o cosmetic-editor.exe .
+go build -ldflags "-s -w" -o EchoVR-Cosmetics-Editor.exe .
 ```
 
-Requires Go 1.22+ and Fyne v2 dependencies.
+Quest APK (needs the Android SDK and NDK):
+
+```powershell
+./build_android.ps1 -Sdk <Android SDK> -Ndk <NDK>
+```
+
+Requires Go 1.25+ and Fyne v2 dependencies.
 
 ## Credits
 

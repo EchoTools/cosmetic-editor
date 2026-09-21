@@ -1,4 +1,20 @@
 # Build outputs
 *.apk
 *.aab
+*.exe
+!Settings/ms_texconv.exe
+*.pdb
+*.zip
 .build/
+
+# Written by the app when it runs from the repo
+/settings.json
+/Settings/*
+!/Settings/ms_texconv.exe
+
+# Local scratch
+__pycache__/
+*.pyc
+*.bak
+*.blend
+*.blend1

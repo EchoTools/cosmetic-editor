@@ -148,41 +148,68 @@ const PackageName = "48037dc70b0ecab2"
 // writable by another app on Android 11+.
 const QuestDataPath = "/sdcard/Android/media/com.readyatdawn.r15/files/_data/5932408047/rad15/android"
 
-// questDataRoots are the _data folders scanned when QuestDataPath is absent,
-// covering the same tree reached through the other mount point.
+// questDataRoots are the _data folders an Echo VR install can live under on a
+// headset, in order of preference.  Some setups keep the game's files in
+// /sdcard/readyatdawn instead of, or as well as, Android/media; when both are
+// present both are modded.  The /storage/emulated/0 entries are the same
+// storage reached through the other mount point and are dropped as duplicates.
 var questDataRoots = []string{
 	"/sdcard/Android/media/com.readyatdawn.r15/files/_data",
+	"/sdcard/readyatdawn/files/_data",
 	"/storage/emulated/0/Android/media/com.readyatdawn.r15/files/_data",
+	"/storage/emulated/0/readyatdawn/files/_data",
 }
 
-// FindQuestDataPath returns the Echo VR data directory on this device, or ""
-// when the game's files are not present.  The known path is tried first; the
-// scan below it only matters if an install uses a different id folder.  A
-// directory counts only when it holds the package manifest, so a stale folder
-// left by an uninstall is not mistaken for an install.
+// FindQuestDataPaths returns every Echo VR data directory on this device, in
+// order of preference, or nil when the game's files are not present.
+func FindQuestDataPaths() []string { return findDataPathsUnder(questDataRoots) }
+
+// FindQuestDataPath returns the preferred Echo VR data directory, the one
+// previews are read from, or "" when there is none.
 func FindQuestDataPath() string {
-	hasManifest := func(p string) bool {
-		_, err := os.Stat(filepath.Join(p, "manifests", PackageName))
-		return err == nil
+	if p := FindQuestDataPaths(); len(p) > 0 {
+		return p[0]
 	}
-	if hasManifest(QuestDataPath) {
-		return QuestDataPath
+	return ""
+}
+
+// findDataPathsUnder looks for one install under each _data root. Within a root
+// the known 5932408047 id is tried first and any other id folder after it. A
+// directory counts only when it holds the package manifest, so a stale folder
+// left by an uninstall is not mistaken for an install, and two roots that turn
+// out to be the same storage count once.
+func findDataPathsUnder(roots []string) []string {
+	var found []string
+	var seen []os.FileInfo
+	add := func(dir string) bool {
+		info, err := os.Stat(ManifestPath(dir))
+		if err != nil {
+			return false
+		}
+		for _, s := range seen {
+			if os.SameFile(s, info) {
+				return true // already have this install by another path
+			}
+		}
+		seen = append(seen, info)
+		found = append(found, dir)
+		return true
 	}
-	for _, root := range questDataRoots {
+	for _, root := range roots {
+		if add(filepath.Join(root, "5932408047", "rad15", "android")) {
+			continue
+		}
 		ids, err := os.ReadDir(root)
 		if err != nil {
 			continue
 		}
 		for _, id := range ids {
-			if !id.IsDir() {
-				continue
-			}
-			if p := filepath.Join(root, id.Name(), "rad15", "android"); hasManifest(p) {
-				return p
+			if id.IsDir() && add(filepath.Join(root, id.Name(), "rad15", "android")) {
+				break
 			}
 		}
 	}
-	return ""
+	return found
 }
 
 // IsAndroid reports whether this binary is running on an Android device.

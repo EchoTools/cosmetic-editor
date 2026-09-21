@@ -30,9 +30,13 @@ var dataReady bool
 func checkQuestSetup() {
 	go func() {
 		granted := data.HasAllFilesAccess()
-		found := ""
+		var all []string
 		if granted {
-			found = data.FindQuestDataPath()
+			all = data.FindQuestDataPaths()
+		}
+		found := ""
+		if len(all) > 0 {
+			found = all[0]
 		}
 		fyne.Do(func() {
 			if !granted {
@@ -59,7 +63,11 @@ func checkQuestSetup() {
 			// parse the package index now rather than on the first preview.
 			data.ClosePackageReader()
 			data.WarmPackageReader(found)
-			state.StatusLabel.SetText("Echo VR data found.")
+			if len(all) > 1 {
+				state.StatusLabel.SetText(fmt.Sprintf("Echo VR data found in %d places; repacks mod all of them.", len(all)))
+			} else {
+				state.StatusLabel.SetText("Echo VR data found.")
+			}
 			if state.RefreshCurrent != nil {
 				state.RefreshCurrent(state)
 			}

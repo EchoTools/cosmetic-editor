@@ -56,12 +56,13 @@ func startUI(t *testing.T, mode string) fyne.Window {
 	t.Helper()
 	a := test.NewApp()
 	t.Cleanup(func() {
-		// Let background texture decodes finish first: one landing after the
-		// app is gone would call into a dead driver.
-		deadline := time.Now().Add(10 * time.Second)
-		for data.TexturesInFlight() > 0 && time.Now().Before(deadline) {
-			time.Sleep(10 * time.Millisecond)
+		// Stop the emote player and let background texture work finish first:
+		// work landing after the app is gone would call into a dead driver,
+		// or write into a temp folder that is being deleted.
+		if state.CancelAnim != nil {
+			state.CancelAnim()
 		}
+		settle(t)
 		a.Quit()
 	})
 	dir := t.TempDir()
@@ -75,14 +76,30 @@ func startUI(t *testing.T, mode string) fyne.Window {
 	w.Show()
 
 	// The cosmetic database loads in the background.
-	deadline := time.Now().Add(5 * time.Second)
-	for state.CosmeticList.CosmeticEntries == nil && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if state.CosmeticList.CosmeticEntries == nil {
+	select {
+	case <-startupDone:
+	case <-time.After(10 * time.Second):
 		t.Fatal("cosmetic database never loaded")
 	}
+	settle(t)
 	return w
+}
+
+// settle waits for background texture work to finish.
+//
+// The test driver runs fyne.Do callbacks straight away on whichever goroutine
+// calls it, instead of queueing them for the UI thread as a real app does, so
+// a preview landing mid-test would touch widgets at the same time as the test.
+// Tests settle after anything that starts such work.
+func settle(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for data.TexturesInFlight() > 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("background texture work never finished")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // TestGenerateThumbnailOnlyOnTints: the Generate Thumbnail button belongs to
@@ -101,6 +118,7 @@ func TestGenerateThumbnailOnlyOnTints(t *testing.T) {
 					continue // not offered in this mode
 				}
 				test.Tap(b)
+				settle(t)
 				check := func(when string) {
 					shown := state.GenThumbBtn.Visible() && state.ThumbnailCard.Visible()
 					if want := tab == "Tints"; shown != want {
@@ -111,6 +129,7 @@ func TestGenerateThumbnailOnlyOnTints(t *testing.T) {
 				// Then pick an item, as a user does.
 				if l := findList(w.Content()); l != nil && l.Length() > 0 {
 					l.Select(0)
+					settle(t)
 					check("after selecting an item")
 				}
 			}
@@ -144,11 +163,13 @@ func TestTintEditSurvivesReselect(t *testing.T) {
 			buttons := map[string]*widget.Button{}
 			findButtons(w.Content(), buttons)
 			test.Tap(buttons["Tints"])
+			settle(t)
 			l := findList(w.Content())
 			if l == nil || l.Length() < 2 {
 				t.Fatal("no tint list")
 			}
 			l.Select(0)
+			settle(t)
 			idx := state.SelectedIndex
 
 			var entries []*widget.Entry
@@ -173,7 +194,9 @@ func TestTintEditSurvivesReselect(t *testing.T) {
 			}
 
 			l.Select(1)
+			settle(t)
 			l.Select(0)
+			settle(t)
 			entries = nil
 			findEntries(state.CategoryEditor, &entries)
 			if got := entries[0].Text; got != "12AB34" {

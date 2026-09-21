@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"fyne.io/fyne/v2"
 )
@@ -20,7 +21,21 @@ import (
 var (
 	inflightMu sync.Mutex
 	inflight   = map[string][]func(string){}
+
+	// background counts other texture work still running, such as the
+	// emote editor filling in its frames.
+	background atomic.Int64
 )
+
+// Background runs f on its own goroutine and counts it in TexturesInFlight
+// until it returns.
+func Background(f func()) {
+	background.Add(1)
+	go func() {
+		defer background.Add(-1)
+		f()
+	}()
+}
 
 // cachedPreviewPath returns the preview PNG for a texture if it already exists.
 func cachedPreviewPath(state *AppState, safe string) (string, bool) {
@@ -110,5 +125,5 @@ func WarmPackageReader(dataDir string) {
 func TexturesInFlight() int {
 	inflightMu.Lock()
 	defer inflightMu.Unlock()
-	return len(inflight)
+	return len(inflight) + int(background.Load())
 }

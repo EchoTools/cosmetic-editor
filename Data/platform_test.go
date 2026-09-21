@@ -107,3 +107,54 @@ func TestResolveDataPath(t *testing.T) {
 		t.Errorf("a Quest tree resolved as PC data: %q", got)
 	}
 }
+
+// makeInstall creates a fake install (a data directory holding a manifest).
+func makeInstall(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "manifests"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ManifestPath(dir), []byte("m"), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFindDataPathsUnderBothLocations(t *testing.T) {
+	base := t.TempDir()
+	media := filepath.Join(base, "Android", "media", "com.readyatdawn.r15", "files", "_data")
+	rad := filepath.Join(base, "readyatdawn", "files", "_data")
+	roots := []string{media, rad}
+
+	if got := findDataPathsUnder(roots); len(got) != 0 {
+		t.Fatalf("no installs yet, got %v", got)
+	}
+
+	// Only the readyatdawn one.
+	radInstall := filepath.Join(rad, "5932408047", "rad15", "android")
+	makeInstall(t, radInstall)
+	if got := findDataPathsUnder(roots); len(got) != 1 || got[0] != radInstall {
+		t.Errorf("readyatdawn only: got %v, want [%s]", got, radInstall)
+	}
+
+	// Both: media first, since previews read from the first.
+	mediaInstall := filepath.Join(media, "5932408047", "rad15", "android")
+	makeInstall(t, mediaInstall)
+	got := findDataPathsUnder(roots)
+	if len(got) != 2 || got[0] != mediaInstall || got[1] != radInstall {
+		t.Errorf("both: got %v, want [%s %s]", got, mediaInstall, radInstall)
+	}
+}
+
+func TestFindDataPathsUnderOtherIDAndDuplicates(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "_data")
+	other := filepath.Join(root, "1234", "rad15", "android")
+	makeInstall(t, other)
+
+	// A differently numbered install is found, and the same root listed
+	// twice (as /sdcard and /storage/emulated/0 are) counts once.
+	got := findDataPathsUnder([]string{root, root})
+	if len(got) != 1 || got[0] != other {
+		t.Errorf("got %v, want [%s]", got, other)
+	}
+}

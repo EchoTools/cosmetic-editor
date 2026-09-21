@@ -231,14 +231,15 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	// every frame of the emote before anything was shown. The player below
 	// skips frames that are not ready, so the animation fills in as they
 	// arrive; switching away cancels the rest.
-	go func(ctx context.Context, frames []string) {
+	frames := append([]string(nil), t.EmoteFrames...)
+	data.Background(func() {
 		for _, f := range frames {
 			if ctx.Err() != nil {
 				return
 			}
 			data.CacheTextureQuietly(state, f)
 		}
-	}(ctx, append([]string(nil), t.EmoteFrames...))
+	})
 
 	go func(ctx context.Context) {
 		ticker := time.NewTicker(time.Second / 15)

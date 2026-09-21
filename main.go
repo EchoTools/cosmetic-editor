@@ -60,6 +60,9 @@ var state *data.AppState
 
 // Persistent Paths
 var (
+	// startupDone is closed once the initial database load has finished.
+	startupDone chan struct{}
+
 	settingsFile string
 	tempFilePath string
 )
@@ -615,6 +618,8 @@ func buildUI(a fyne.App, w fyne.Window, settingsPath string) {
 	w.SetContent(mainSplit)
 
 	// Initial Load logic
+	done := make(chan struct{})
+	startupDone = done
 	go func() {
 		time.Sleep(200 * time.Millisecond)
 
@@ -676,6 +681,7 @@ func buildUI(a fyne.App, w fyne.Window, settingsPath string) {
 				// Parse the package index now rather than on the first preview.
 				data.WarmPackageReader(state.Settings.EchoVRDataPath)
 			}
+			close(done)
 		})
 	}()
 

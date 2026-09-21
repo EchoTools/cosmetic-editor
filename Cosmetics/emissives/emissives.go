@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"github.com/EchoTools/cosmetic-editor/Data"
 	"fmt"
+	"github.com/EchoTools/cosmetic-editor/Data"
 	"math"
 	"strings"
 
