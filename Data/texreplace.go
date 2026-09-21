@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nfnt/resize"
-
 	texture "github.com/EchoTools/cosmetic-editor/Texture"
 	"github.com/EchoTools/cosmetic-editor/Texture/astcenc"
 )
@@ -70,17 +68,18 @@ func BuildQuestTexture(orig *texture.Descriptor, img image.Image) (*QuestReplace
 		mips = 1
 	}
 
-	// Mip 0 is the picture at the resident size; each further level halves it,
-	// never below one texel, and is resampled from the level above.
+	// Mip 0 is the picture at the resident size; each further level is a 2x2
+	// box average of the one above, never below one texel.  All of it happens
+	// in the texture's own colour space: sRGB textures are resized and averaged
+	// in linear light, UNORM ones on their stored values, which is what RAD's
+	// cooker did (measured against the shipped mips; see mipgen.go).
 	var payload []byte
-	level := resize.Resize(uint(w), uint(h), img, resize.Lanczos3)
-	lw, lh := w, h
+	level := resizeWorking(toWorking(img, srgb), w, h)
 	for i := 0; i < mips; i++ {
 		if i > 0 {
-			lw, lh = max(1, lw/2), max(1, lh/2)
-			level = resize.Resize(uint(lw), uint(lh), level, resize.Bilinear)
+			level = level.halve()
 		}
-		blocks, err := astcenc.Encode(level, bw, bh, srgb, astcenc.QualityMedium)
+		blocks, err := astcenc.Encode(level.toNRGBA(srgb), bw, bh, srgb, astcenc.QualityMedium)
 		if err != nil {
 			return nil, fmt.Errorf("mip %d: %w", i, err)
 		}

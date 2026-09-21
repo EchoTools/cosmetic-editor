@@ -77,3 +77,36 @@ func decodeUncompressed(data []byte, w, h int, f ETextureFormat) (*image.NRGBA, 
 	}
 	return img, nil
 }
+
+// DecodeLevel decodes one resident mip level; level 0 is the largest. Levels
+// are stored largest first, so a level's offset is the sum of the sizes above
+// it.
+func DecodeLevel(d *Descriptor, payload []byte, level int) (*image.NRGBA, error) {
+	if d == nil {
+		return nil, fmt.Errorf("nil descriptor")
+	}
+	if level < 0 || level >= int(d.ResidentMips) {
+		return nil, fmt.Errorf("level %d outside the %d resident mips", level, d.ResidentMips)
+	}
+	texels := d.Texels(payload)
+	f := d.TextureFormat()
+	info, ok := f.Info()
+	if !ok {
+		return nil, fmt.Errorf("unsupported texture format %d", d.Format)
+	}
+	w, h := int(d.ResidentWidth), int(d.ResidentHeight)
+	off := 0
+	for i := 0; i < level; i++ {
+		off += f.SurfaceSize(w, h)
+		w, h = max(1, w/2), max(1, h/2)
+	}
+	size := f.SurfaceSize(w, h)
+	if off+size > len(texels) {
+		return nil, fmt.Errorf("payload too short for level %d", level)
+	}
+	data := texels[off : off+size]
+	if f.IsASTC() {
+		return DecodeASTC(data, w, h, info.BlockW, info.BlockH)
+	}
+	return decodeUncompressed(data, w, h, f)
+}
