@@ -97,6 +97,7 @@ func main() {
 	tempDir := filepath.Join(settingsPath, "Temp")
 	os.MkdirAll(tempDir, 0755)
 	tempFilePath = filepath.Join(tempDir, "temp_autosave.dat")
+	installModelScripts(tempDir)
 
 	if data.IsAndroid() {
 		// There is nowhere beside the binary to keep settings on a headset.
@@ -480,8 +481,17 @@ func buildUI(a fyne.App, w fyne.Window, settingsPath string) {
 			},
 		}
 
-		modal := dialog.NewCustom("Editor Settings", "Close", container.NewPadded(form), w)
-		modal.Resize(fyne.NewSize(600, 350))
+		btnInstallMod := widget.NewButtonWithIcon("Install other mods", theme.ContentAddIcon(), installOtherMod)
+		modsHelp := widget.NewLabel("Add a mod made with other tools (a .zip). Its files are applied the next time you repack.")
+		modsHelp.Wrapping = fyne.TextWrapWord
+
+		modal := dialog.NewCustom("Editor Settings", "Close", container.NewPadded(container.NewVBox(
+			form,
+			widget.NewSeparator(),
+			modsHelp,
+			btnInstallMod,
+		)), w)
+		modal.Resize(fyne.NewSize(600, 420))
 		modal.Show()
 	})
 

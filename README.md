@@ -16,6 +16,7 @@ The Cosmetic Editor is narrower in scope (cosmetics only, not all textures) but 
 |---|---|---|
 | Scope | All ~12k textures | Cosmetic items only |
 | Language | Python (single script) | Go (Fyne GUI) |
+| Model import | No | Yes, PC only (chassis, bracers, boosters from .blend/.glb via Blender) |
 | Metadata editing | No | Yes (names, descriptions, rarity) |
 | Tints | No | Yes (hex or colour picker, thumbnail generation) |
 | Emissives | No | Yes (gradients, scroll presets) |
@@ -33,15 +34,16 @@ The Cosmetic Editor is narrower in scope (cosmetics only, not all textures) but 
 - **Metadata**: display names, internal names, descriptions.
 - **Rarity**: Mythic, Legendary, Epic, Superb, Fine, Common, Default.
 
-Chassis, bracers and boosters keep their metadata editors on PC. Model import (Blender/GLB) has been removed, so their meshes can't be changed. In Quest mode these tabs are hidden.
+- **Chassis, Bracers, Boosters** (PC only): metadata editing, plus **Replace Model from .blend** to import a custom model from a `.blend` or `.glb` (chassis: 1st person, 3rd person or both; bracers: left, right or both). This needs Python and Blender installed. The game's original mesh is read straight from the package as the base, so nothing has to be extracted. In Quest mode these tabs are hidden.
 
 ## How It Works
 
 1. **Find the game data.** On a Quest the app finds it by itself (see below). On PC, pick your Echo VR folder: the game folder, `_data`, or anything in between works, and the app finds the `rad15/win10` data directory beneath it.
 2. **Previews** are decoded straight from the game's package files, in the background, and cached in `Settings/texture_cache/`. Nothing has to be extracted first.
 3. **Edit** cosmetics. Changes are autosaved to disk as you make them, so they survive closing the app.
-4. **Repack & Apply** stages the cosmetic database and any replaced textures, then appends them to the game's package as a new chunk and updates the manifest. evrFileTools is built in, so no external tool runs.
-5. **Revert** puts back the original manifest and deletes only the chunks the editor added. The manifest is backed up automatically, along with a note of how many chunks the install shipped with, before the first repack.
+4. **Repack & Apply** stages the cosmetic database, replaced textures and installed mods, then appends them to the game's package as a new chunk and updates the manifest. evrFileTools is built in, so no external tool runs.
+5. **Install other mods** (in Settings) adds a mod made with other tools. Pick its `.zip` and its files are copied into the staging folder (`Settings/input-quest` or `Settings/input-pcvr`), so the next repack applies them together with your own changes. Zips with the type folders at the top, inside a wrapper folder, or inside evrFileTools' chunk folder all work; readmes and images in the zip are ignored. A mod built for the other platform is refused, and a mod's own cosmetic database is left out, since the editor writes the database on every repack.
+6. **Revert** puts back the original manifest and deletes only the chunks the editor added. The manifest is backed up automatically, along with a note of how many chunks the install shipped with, before the first repack.
 
 ### Quest
 
@@ -75,6 +77,7 @@ PC and Quest store the same resource types under different folder hashes, becaus
 
 - Echo VR game data (the `_data` directory)
 - **Windows:** `ms_texconv.exe` in the `Settings/` folder (included; MIT licensed, see `Settings/texconv-LICENSE.txt`)
+- **Model import (PC, optional):** Python and Blender on `PATH`
 - **Quest:** install the APK (`adb install -r EchoVR_Cosmetics.apk`) and allow "All files access" when asked
 
 ## Building

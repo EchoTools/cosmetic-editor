@@ -333,7 +333,10 @@ func (s *AppState) HandleSave(tempPath string) error {
 	return os.WriteFile(tempPath, data, 0644)
 }
 
-// FindBaseMesh searches the extracted models/GPU subdirectories for the given hash.
+// FindBaseMesh returns a file holding the game's own mesh for the given hash,
+// which the Blender model import builds on. An extracted copy is used when
+// there is one; otherwise the mesh is read straight out of the game package,
+// since the editor no longer extracts the whole game first.
 func (s *AppState) FindBaseMesh(hashHex string) (string, error) {
 	extractedPath := s.Settings.ExtractedPath
 	if extractedPath == "" {
@@ -343,7 +346,11 @@ func (s *AppState) FindBaseMesh(hashHex string) (string, error) {
 	gpuPath := filepath.Join(extractedPath, "GPU")
 	entries, err := os.ReadDir(gpuPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read GPU models directory (%s): %v", gpuPath, err)
+		if p, perr := s.baseMeshFromPackage(hashHex); perr == nil {
+			return p, nil
+		} else {
+			return "", fmt.Errorf("model %s is not extracted (%s) and could not be read from the game package: %v", hashHex, gpuPath, perr)
+		}
 	}
 
 	strippedHash := strings.TrimLeft(hashHex, "0")
@@ -363,7 +370,49 @@ func (s *AppState) FindBaseMesh(hashHex string) (string, error) {
 			}
 		}
 	}
+	if p, err := s.baseMeshFromPackage(hashHex); err == nil {
+		return p, nil
+	}
 	return "", fmt.Errorf("model %s not found in any GPU subfolder", hashHex)
+}
+
+// baseMeshFromPackage copies a mesh's GPU data out of the game package into
+// Temp/BaseMeshes and returns its path.
+func (s *AppState) baseMeshFromPackage(hashHex string) (string, error) {
+	file := HexToSymbol(hashHex)
+	if file == -1 {
+		return "", fmt.Errorf("invalid mesh hash %q", hashHex)
+	}
+	dataDir := s.Settings.EchoVRDataPath
+	r, err := openPackageReader(dataDir)
+	if err != nil {
+		return "", err
+	}
+	// The mesh is stored as the GPU half of one of the model resource types.
+	p := s.Platform()
+	var typeHex string
+	for _, base := range []string{"CGMeshListResource", "CGInstancedModelResource"} {
+		if _, ok := r.index[assetKey{HexToSymbol(p.GPUTypeHash(base)), file}]; ok {
+			typeHex = p.GPUTypeHash(base)
+			break
+		}
+	}
+	if typeHex == "" {
+		return "", fmt.Errorf("mesh %s is not in the game package", hashHex)
+	}
+	b, err := ReadPackageAsset(dataDir, typeHex, hashHex)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(GetSettingsDir(), "Temp", "BaseMeshes")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+	out := filepath.Join(dir, hashHex)
+	if err := os.WriteFile(out, b, 0644); err != nil {
+		return "", err
+	}
+	return out, nil
 }
 
 // Platform returns the platform this session is editing for.

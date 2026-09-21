@@ -219,3 +219,41 @@ func TestTintEditSurvivesReselect(t *testing.T) {
 		})
 	}
 }
+
+// TestModelImportOnlyOnPC: the Blender model import belongs to PC mode on the
+// desktop. On PC each model editor offers it; in Quest mode the model tabs are
+// not offered at all.
+func TestModelImportOnlyOnPC(t *testing.T) {
+	for _, mode := range []string{"PCVR", "Quest"} {
+		t.Run(mode, func(t *testing.T) {
+			w := startUI(t, mode)
+			buttons := map[string]*widget.Button{}
+			findButtons(w.Content(), buttons)
+			for _, tab := range []string{"Chassis", "Bracers", "Boosters"} {
+				b, ok := buttons[tab]
+				if mode == "Quest" {
+					if ok && b.Visible() {
+						t.Errorf("Quest mode offers the %s tab", tab)
+					}
+					continue
+				}
+				if !ok {
+					t.Fatalf("PC mode has no %s tab", tab)
+				}
+				test.Tap(b)
+				settle(t)
+				l := findList(w.Content())
+				if l == nil || l.Length() == 0 {
+					t.Fatalf("%s: no items", tab)
+				}
+				l.Select(0)
+				settle(t)
+				editor := map[string]*widget.Button{}
+				findButtons(state.CategoryEditor, editor)
+				if _, ok := editor["Replace Model from .blend"]; !ok {
+					t.Errorf("%s editor on PC has no model import button", tab)
+				}
+			}
+		})
+	}
+}

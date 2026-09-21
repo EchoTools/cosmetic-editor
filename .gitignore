@@ -5,6 +5,7 @@
 !Settings/ms_texconv.exe
 *.pdb
 *.zip
+!Data/evr_mesh_importer.zip
 .build/
 
 # Written by the app when it runs from the repo
@@ -19,3 +20,7 @@ __pycache__/
 *.bak
 *.blend
 *.blend1
+
+# Source of Data/evr_mesh_importer.zip (the Blender add-on), kept locally
+Data/evr_mesh_importer/
+*~

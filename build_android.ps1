@@ -24,6 +24,18 @@ Set-Location $PSScriptRoot
 if (-not $Sdk) { throw "Set ANDROID_HOME or pass -Sdk <path to the Android SDK>." }
 if (-not $Ndk) { throw "Set ANDROID_NDK_HOME or pass -Ndk <path to the NDK>." }
 
+# AndroidManifest.xml is used as is, so its version must be kept in step with
+# FyneApp.toml by hand. versionCode is major*10000 + minor*100 + patch, so it
+# always goes up and the Quest accepts the new APK as an upgrade.
+$appVersion = (Select-String -Path FyneApp.toml -Pattern '^Version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+$v = $appVersion.Split('.') | ForEach-Object { [int]$_ }
+$wantCode = $v[0] * 10000 + $v[1] * 100 + $v[2]
+$manifest = Get-Content -Raw AndroidManifest.xml
+if ($manifest -notmatch "android:versionName=""$([regex]::Escape($appVersion))""" -or
+    $manifest -notmatch "android:versionCode=""$wantCode""") {
+    throw "AndroidManifest.xml's version does not match FyneApp.toml ($appVersion). Set android:versionName=""$appVersion"" and android:versionCode=""$wantCode""."
+}
+
 $fyneDir = (go list -m -f '{{.Dir}}' fyne.io/fyne/v2).Trim()
 $fyneVer = (go list -m -f '{{.Version}}' fyne.io/fyne/v2).Trim()
 $patchDir = Join-Path $PSScriptRoot "patches\fyne-$fyneVer"

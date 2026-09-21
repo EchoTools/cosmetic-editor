@@ -60,6 +60,42 @@ func PickFile(state *AppState, extensions []string, onPick func(path string)) {
 	d.Show()
 }
 
+// PickFileInPlace is PickFile for files that must be used where they are, such
+// as a .blend that links its textures by relative path. A file on the local
+// disk is handed over as is; anything else (an Android content URI) is copied
+// in, as PickFile does. The file handed over must not be deleted.
+func PickFileInPlace(state *AppState, extensions []string, onPick func(path string)) {
+	if state == nil || state.Window == nil {
+		return
+	}
+	d := dialog.NewFileOpen(func(rc fyne.URIReadCloser, err error) {
+		if err != nil {
+			dialog.ShowError(err, state.Window)
+			return
+		}
+		if rc == nil {
+			return // cancelled
+		}
+		defer rc.Close()
+
+		if rc.URI().Scheme() == "file" {
+			onPick(rc.URI().Path())
+			return
+		}
+		path, err := copyToPicked(rc)
+		if err != nil {
+			dialog.ShowError(err, state.Window)
+			return
+		}
+		onPick(path)
+	}, state.Window)
+
+	if len(extensions) > 0 {
+		d.SetFilter(storage.NewExtensionFileFilter(extensions))
+	}
+	d.Show()
+}
+
 // copyToPicked copies a chosen file into the app's storage and returns its path.
 func copyToPicked(rc fyne.URIReadCloser) (string, error) {
 	name := filepath.Base(rc.URI().Name())
