@@ -109,7 +109,52 @@ func main() {
 	}
 
 	w := a.NewWindow("EchoVR Cosmetics Editor")
-	w.Resize(fyne.NewSize(1200, 850))
+
+	// Everything that touches widgets has to run on Fyne's UI thread. On
+	// Android main() is not that thread, and building the UI from here made
+	// Fyne report a call-thread error for nearly every widget and race the
+	// renderer, so the UI is built once the app has started instead.
+	a.Lifecycle().SetOnStarted(func() {
+		buildUI(a, w, settingsPath)
+		w.Show()
+	})
+
+	// Coming back to the app, typically from the All files access screen,
+	// re-checks access and looks for the game's data again.
+	if data.IsAndroid() {
+		a.Lifecycle().SetOnEnteredForeground(func() {
+			if state != nil && state.CosmeticList.CosmeticEntries != nil {
+				checkQuestSetup()
+			}
+		})
+	}
+
+	a.Run()
+}
+
+func loadSettings() {
+	file, err := os.ReadFile(settingsFile)
+	if err == nil {
+		if err := json.Unmarshal(file, &state.Settings); err != nil && state.StatusLabel != nil {
+			// Settings load before the status bar exists; a malformed file
+			// must not crash startup.
+			state.StatusLabel.SetText("Warning: failed to parse settings: " + err.Error())
+		}
+	}
+}
+
+func saveSettings() {
+	file, _ := json.MarshalIndent(state.Settings, "", "  ")
+	os.WriteFile(settingsFile, file, 0644)
+}
+
+// buildUI creates the window content and starts loading the cosmetic
+// database. It runs on the UI thread, from the app's OnStarted callback.
+func buildUI(a fyne.App, w fyne.Window, settingsPath string) {
+	if !fyne.CurrentDevice().IsMobile() {
+		// A headset or phone window is sized by the system, not the app.
+		w.Resize(fyne.NewSize(1200, 850))
+	}
 
 	state = data.NewAppState(a, w)
 	loadSettings()
@@ -200,15 +245,42 @@ func main() {
 	state.CategoryEditor = container.NewVBox()
 
 	// 2. NAVIGATION & CONTENT ASSEMBLY
-	catNames := []string{"Chassis", "Bracers", "Boosters", "Tints", "Titles", "Emissives", "Fanfares", "Emotes", "Banners", "Tags", "Emblems", "Decals", "Medals", "Pips", "Patterns"}
-	catIcons := []fyne.Resource{
-		theme.AccountIcon(), theme.AccountIcon(), theme.AccountIcon(), theme.ColorPaletteIcon(), theme.DocumentIcon(), theme.VisibilityIcon(), theme.VolumeUpIcon(), theme.MediaPlayIcon(),
-		theme.GridIcon(), theme.ContentCopyIcon(), theme.ComputerIcon(), theme.CheckButtonIcon(), theme.HelpIcon(), theme.MenuIcon(), theme.ListIcon(),
+	type category struct {
+		name  string
+		icon  fyne.Resource
+		setup func(*data.AppState) fyne.CanvasObject
+		// pcOnly categories edit 3D model or audio data. The Quest build
+		// cannot change either, so those tabs are not offered there.
+		pcOnly bool
+	}
+	allCategories := []category{
+		{"Chassis", theme.AccountIcon(), chassis.SetupUI, true},
+		{"Bracers", theme.AccountIcon(), bracers.SetupUI, true},
+		{"Boosters", theme.AccountIcon(), boosters.SetupUI, true},
+		{"Tints", theme.ColorPaletteIcon(), tints.SetupUI, false},
+		{"Titles", theme.DocumentIcon(), titles.SetupUI, false},
+		{"Emissives", theme.VisibilityIcon(), emissives.SetupUI, false},
+		{"Fanfares", theme.VolumeUpIcon(), fanfares.SetupUI, true},
+		{"Emotes", theme.MediaPlayIcon(), emotes.SetupUI, false},
+		{"Banners", theme.GridIcon(), banners.SetupUI, false},
+		{"Tags", theme.ContentCopyIcon(), tags.SetupUI, false},
+		{"Emblems", theme.ComputerIcon(), emblems.SetupUI, false},
+		{"Decals", theme.CheckButtonIcon(), decals.SetupUI, false},
+		{"Medals", theme.HelpIcon(), medals.SetupUI, false},
+		{"Pips", theme.MenuIcon(), pips.SetupUI, false},
+		{"Patterns", theme.ListIcon(), patterns.SetupUI, false},
 	}
 
-	catUIs := []fyne.CanvasObject{
-		chassis.SetupUI(state), bracers.SetupUI(state), boosters.SetupUI(state), tints.SetupUI(state), titles.SetupUI(state), emissives.SetupUI(state), fanfares.SetupUI(state), emotes.SetupUI(state),
-		banners.SetupUI(state), tags.SetupUI(state), emblems.SetupUI(state), decals.SetupUI(state), medals.SetupUI(state), pips.SetupUI(state), patterns.SetupUI(state),
+	var catNames []string
+	var catIcons []fyne.Resource
+	var catUIs []fyne.CanvasObject
+	for _, c := range allCategories {
+		if c.pcOnly && state.Platform() == data.PlatformQuest {
+			continue
+		}
+		catNames = append(catNames, c.name)
+		catIcons = append(catIcons, c.icon)
+		catUIs = append(catUIs, c.setup(state))
 	}
 
 	contentStack := container.NewStack()
@@ -324,9 +396,18 @@ func main() {
 		navButtons[i] = widget.NewButtonWithIcon(name, catIcons[i], func() { selectTab(idx) })
 	}
 
-	row1 := container.NewGridWithColumns(8, navButtons[0], navButtons[1], navButtons[2], navButtons[3], navButtons[4], navButtons[5], navButtons[6], navButtons[7])
-	row2 := container.NewGridWithColumns(7, navButtons[8], navButtons[9], navButtons[10], navButtons[11], navButtons[12], navButtons[13], navButtons[14])
-	navArea := container.NewVBox(row1, row2)
+	// Lay the tabs out in rows narrow enough for their labels to fit. A
+	// headset panel is much narrower than a desktop window, where eight across
+	// clips every label.
+	navCols := 8
+	if fyne.CurrentDevice().IsMobile() {
+		navCols = 4
+	}
+	navObjs := make([]fyne.CanvasObject, len(navButtons))
+	for i, b := range navButtons {
+		navObjs[i] = b
+	}
+	navArea := container.NewGridWithColumns(navCols, navObjs...)
 
 	btnRepack := widget.NewButtonWithIcon("REPACK PACKAGE", theme.StorageIcon(), func() {
 		data.ShowRepackDialog(state)
@@ -540,13 +621,10 @@ func main() {
 			// Nothing is extracted: the database is built in and textures are
 			// read from the package one at a time.  All the editor needs is to
 			// know where the game's data directory is, so check that.
-			if !data.HasManifest(state.Settings.EchoVRDataPath) {
-				if data.IsAndroid() {
-					dialog.ShowInformation("Echo VR data not found",
-						"Could not find Echo VR's data on this headset.\n\n"+
-							"Make sure Echo VR is installed, and give this app \"All files access\" "+
-							"(Settings > Apps > EchoVR Cosmetics > Permissions), then restart it.", w)
-				} else {
+			if data.IsAndroid() {
+				checkQuestSetup()
+			} else if !data.HasManifest(state.Settings.EchoVRDataPath) {
+				{
 					dialog.ShowConfirm("Setup Required", "Select your Echo VR folder so changes can be repacked into it.", func(b bool) {
 						if !b {
 							return
@@ -566,19 +644,4 @@ func main() {
 		})
 	}()
 
-	w.ShowAndRun()
-}
-
-func loadSettings() {
-	file, err := os.ReadFile(settingsFile)
-	if err == nil {
-		if err := json.Unmarshal(file, &state.Settings); err != nil {
-			state.StatusLabel.SetText("Warning: failed to parse settings: " + err.Error())
-		}
-	}
-}
-
-func saveSettings() {
-	file, _ := json.MarshalIndent(state.Settings, "", "  ")
-	os.WriteFile(settingsFile, file, 0644)
 }
