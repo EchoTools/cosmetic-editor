@@ -76,7 +76,18 @@ func fixEchoVRPath(p string) string {
 func main() {
 	os.Setenv("FYNE_GL_VERSION", "2.1")
 
+	// The app has to exist before the storage layout is decided: on Android
+	// the only writable location is the one the app itself is given, and it is
+	// reachable only through the app object.
+	a := app.NewWithID("com.echotools.cosmeticeditor")
+	a.SetIcon(fyne.NewStaticResource("icon.ico", embeddedIcon))
+
 	// 1. SETUP: Directories & Settings
+	if data.IsAndroid() {
+		if root := a.Storage().RootURI(); root != nil {
+			data.SetSettingsDir(filepath.Join(root.Path(), "settings"))
+		}
+	}
 	settingsPath := data.GetSettingsDir()
 	os.MkdirAll(settingsPath, 0755)
 
@@ -84,16 +95,19 @@ func main() {
 	os.MkdirAll(tempDir, 0755)
 	tempFilePath = filepath.Join(tempDir, "temp_autosave.dat")
 
-	exePath, _ := os.Executable()
-	exeDir := filepath.Dir(exePath)
-	if strings.Contains(strings.ToLower(exeDir), "go-build") || strings.Contains(strings.ToLower(exeDir), "temp") {
-		cwd, _ := os.Getwd()
-		exeDir = cwd
+	if data.IsAndroid() {
+		// There is nowhere beside the binary to keep settings on a headset.
+		settingsFile = filepath.Join(settingsPath, "settings.json")
+	} else {
+		exePath, _ := os.Executable()
+		exeDir := filepath.Dir(exePath)
+		if strings.Contains(strings.ToLower(exeDir), "go-build") || strings.Contains(strings.ToLower(exeDir), "temp") {
+			cwd, _ := os.Getwd()
+			exeDir = cwd
+		}
+		settingsFile = filepath.Join(exeDir, "settings.json")
 	}
-	settingsFile = filepath.Join(exeDir, "settings.json")
 
-	a := app.New()
-	a.SetIcon(fyne.NewStaticResource("icon.ico", embeddedIcon))
 	w := a.NewWindow("EchoVR Cosmetics Editor")
 	w.Resize(fyne.NewSize(1200, 850))
 
@@ -101,8 +115,18 @@ func main() {
 	loadSettings()
 
 	// 2. STABILIZE PATHS
+	if data.IsAndroid() {
+		// On the headset this is a Quest install by definition, and the game's
+		// data sits at a known place under Android/media.  Detect it every
+		// launch rather than trusting a saved path, which may predate a
+		// reinstall.
+		state.Settings.Mode = "Quest"
+		if p := data.FindQuestDataPath(); p != "" {
+			state.Settings.EchoVRDataPath = p
+		}
+	}
 	if state.Settings.EchoVRDataPath == "" {
-		state.Settings.EchoVRDataPath = data.GetDefaultEchoVRPath()
+		state.Settings.EchoVRDataPath = data.DefaultDataPath(state.Platform())
 	}
 	if state.Settings.TextureCachePath == "" {
 		state.Settings.TextureCachePath = filepath.Join(settingsPath, "texture_cache")

@@ -142,27 +142,44 @@ func (p Platform) TextureCodec() string {
 // use the same package hash; only the runtime directory differs.
 const PackageName = "48037dc70b0ecab2"
 
-// QuestDataPath is where Echo VR keeps its _data tree on a Quest.  This lives
-// under Android/media rather than Android/data, which is what makes it
-// readable and writable by another app on Android 11+ without the package
-// having to grant anything.
+// QuestDataPath is where Echo VR keeps its data on a Quest.  This is the path
+// the texture editor pushes to and reads the manifest from.  It lives under
+// Android/media rather than Android/data, which is what makes it readable and
+// writable by another app on Android 11+.
 const QuestDataPath = "/sdcard/Android/media/com.readyatdawn.r15/files/_data/5932408047/rad15/android"
 
-// questDataPathAlternates are other locations the same tree shows up in,
-// depending on how the headset exposes its primary volume.
-var questDataPathAlternates = []string{
-	"/storage/emulated/0/Android/media/com.readyatdawn.r15/files/_data/5932408047/rad15/android",
-	"/sdcard/Android/data/com.readyatdawn.r15/files/_data/5932408047/rad15/android",
+// questDataRoots are the _data folders scanned when QuestDataPath is absent,
+// covering the same tree reached through the other mount point.
+var questDataRoots = []string{
+	"/sdcard/Android/media/com.readyatdawn.r15/files/_data",
+	"/storage/emulated/0/Android/media/com.readyatdawn.r15/files/_data",
 }
 
-// FindQuestDataPath returns the first Echo VR _data directory that exists on
-// this device, or "" when the game's files are not present.  A directory only
-// counts when it actually holds the package manifest, so a stale empty folder
-// left behind by an uninstall is not mistaken for an install.
+// FindQuestDataPath returns the Echo VR data directory on this device, or ""
+// when the game's files are not present.  The known path is tried first; the
+// scan below it only matters if an install uses a different id folder.  A
+// directory counts only when it holds the package manifest, so a stale folder
+// left by an uninstall is not mistaken for an install.
 func FindQuestDataPath() string {
-	for _, p := range append([]string{QuestDataPath}, questDataPathAlternates...) {
-		if _, err := os.Stat(filepath.Join(p, "manifests", PackageName)); err == nil {
-			return p
+	hasManifest := func(p string) bool {
+		_, err := os.Stat(filepath.Join(p, "manifests", PackageName))
+		return err == nil
+	}
+	if hasManifest(QuestDataPath) {
+		return QuestDataPath
+	}
+	for _, root := range questDataRoots {
+		ids, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, id := range ids {
+			if !id.IsDir() {
+				continue
+			}
+			if p := filepath.Join(root, id.Name(), "rad15", "android"); hasManifest(p) {
+				return p
+			}
 		}
 	}
 	return ""

@@ -229,8 +229,21 @@ func FindTool(settingsDir, toolName string) (string, error) {
 	return "", fmt.Errorf("tool '%s' not found", toolName)
 }
 
-// GetSettingsDir returns the absolute path to the Settings folder
+// settingsDir, when set, overrides where the app keeps its own files.
+var settingsDir string
+
+// SetSettingsDir fixes the folder the app stores settings, staged assets and
+// caches in.  Android has no writable directory beside the executable, so on a
+// headset this is set at startup from the app's private storage; leaving it
+// unset keeps the desktop behaviour of a "settings" folder next to the binary.
+func SetSettingsDir(dir string) { settingsDir = dir }
+
+// GetSettingsDir returns the absolute path to the Settings folder.
 func GetSettingsDir() string {
+	if settingsDir != "" {
+		return settingsDir
+	}
+
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
 
