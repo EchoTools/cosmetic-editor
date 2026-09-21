@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	data "github.com/EchoTools/cosmetic-editor/Data"
 	"fmt"
+	data "github.com/EchoTools/cosmetic-editor/Data"
 	"image"
 	"image/gif"
 	"image/png"
@@ -358,6 +358,11 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			g, _ := gif.DecodeAll(f)
 			f.Close()
 
+			if state.Platform() == data.PlatformQuest {
+				replaceQuestEmoteFrames(state, g)
+				return
+			}
+
 			settingsPath := data.GetSettingsDir()
 			tempDir := filepath.Join(settingsPath, "Temp")
 			os.MkdirAll(tempDir, 0755)
@@ -529,4 +534,58 @@ func RefreshFilter(state *data.AppState, query string) {
 	if emoteList != nil {
 		emoteList.Refresh()
 	}
+}
+
+// replaceQuestEmoteFrames stages every GIF frame as a Quest texture. Each frame
+// is built in the shape of the frame it replaces; frames beyond the emote's
+// original count do not exist in the game yet and take frame 0's shape. It runs
+// off the UI goroutine.
+func replaceQuestEmoteFrames(state *data.AppState, g *gif.GIF) {
+	if g == nil || len(g.Image) == 0 || len(currentEmoteFrames) == 0 {
+		fyne.Do(func() { dialog.ShowError(errors.New("no GIF frames to process"), state.Window) })
+		return
+	}
+	template := currentEmoteFrames[0]
+
+	processed := 0
+	var failed []string
+	for i, img := range g.Image {
+		if i >= len(currentEmoteFrames) {
+			break
+		}
+		id := currentEmoteFrames[i]
+		if _, err := data.StageQuestTextureLike(state, id, template, img); err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", id, err))
+			continue
+		}
+		processed++
+		fyne.Do(func() {
+			state.StatusLabel.SetText(fmt.Sprintf("Encoding frames... %d/%d", processed, len(g.Image)))
+		})
+	}
+
+	fyne.Do(func() {
+		if processed == 0 {
+			dialog.ShowError(fmt.Errorf("no frames could be encoded:\n%s", strings.Join(failed, "\n")), state.Window)
+			return
+		}
+		realIdx := state.SelectedIndex
+		t := CEmote{}
+		if err := t.FromCosmeticEntry(state.CosmeticList.CosmeticEntries[realIdx]); err == nil {
+			t.EmoteFrames = currentEmoteFrames
+			if newEntry, err := t.ToCosmeticEntry(); err == nil {
+				state.CosmeticList.CosmeticEntries[realIdx] = newEntry
+			}
+		}
+		if err := state.SaveCosmeticDB(); err != nil {
+			dialog.ShowError(err, state.Window)
+			return
+		}
+		state.StatusLabel.SetText(fmt.Sprintf("GIF staged: %d/%d frames", processed, len(g.Image)))
+		msg := fmt.Sprintf("%d frames staged. Repack to apply them in game.", processed)
+		if len(failed) > 0 {
+			msg += fmt.Sprintf("\n\n%d frames failed:\n%s", len(failed), strings.Join(failed, "\n"))
+		}
+		dialog.ShowInformation("Success", msg, state.Window)
+	})
 }

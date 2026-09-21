@@ -402,58 +402,33 @@ func HandlePNGThumbnailReplacement(state *AppState, symbol string, selectedPngPa
 			}
 		})
 
+		if state.Platform() == PlatformQuest {
+			stageQuestFromFile(state, symbol, selectedPngPath, "Thumbnail")
+			return
+		}
+
 		settingsPath := GetSettingsDir()
 		tempDir := filepath.Join(settingsPath, "Temp")
 		os.MkdirAll(tempDir, 0755)
 
 		// 1. Convert PNG to Correct Texture Format
 		var generatedFile string
-		if state.Settings.Mode == "Quest" {
-			astcPath, err := FindTool(settingsPath, "astcenc-avx2.exe")
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
-			tempAstcPath := filepath.Join(tempDir, "temp_thumb.astc")
-			cmd := exec.Command(astcPath, "-cs", selectedPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w) })
-				return
-			}
-			astcData, _ := os.ReadFile(tempAstcPath)
-			if len(astcData) < 16 {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to generate ASTC"), w) })
-				return
-			}
-			header := make([]byte, 16)
-			header[0], header[1], header[2], header[3] = 0x53, 0x80, 0x09, 0x00
-			binary.LittleEndian.PutUint16(header[4:], 6)
-			binary.LittleEndian.PutUint16(header[6:], 6)
-			// Rough estimate of size for header
-			header[8], header[9] = 0x00, 0x01 // 256
-			header[10], header[11] = 0x00, 0x01
-			finalData := append(header, astcData[16:]...)
-			generatedFile = filepath.Join(tempDir, "temp_thumb_stripped.bin")
-			os.WriteFile(generatedFile, finalData, 0644)
-		} else {
-			texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
-			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
-			cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", selectedPngPath)
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
-				return
-			}
-			// Microsoft texconv outputs to tempDir/basename(selectedPngPath).dds
-			baseName := strings.TrimSuffix(filepath.Base(selectedPngPath), filepath.Ext(selectedPngPath))
-			expectedOut := filepath.Join(tempDir, baseName+".dds")
-			os.Rename(expectedOut, generatedFile)
+		texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
+		if err != nil {
+			fyne.Do(func() { dialog.ShowError(err, w) })
+			return
 		}
+		generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
+		cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", selectedPngPath)
+		cmd.SysProcAttr = HiddenProcAttr()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
+			return
+		}
+		// Microsoft texconv outputs to tempDir/basename(selectedPngPath).dds
+		baseName := strings.TrimSuffix(filepath.Base(selectedPngPath), filepath.Ext(selectedPngPath))
+		expectedOut := filepath.Join(tempDir, baseName+".dds")
+		os.Rename(expectedOut, generatedFile)
 
 		// 2. Repack
 		inputDir := InputDirNamePC
@@ -636,6 +611,15 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 			}
 		}
 
+		if state.Platform() == PlatformQuest {
+			if _, err := StageQuestTexture(state, idStr, dst); err != nil {
+				fyne.Do(func() { dialog.ShowError(err, w) })
+				return
+			}
+			fyne.Do(func() { dialog.ShowInformation("Success", "Thumbnail generated: "+idStr, w) })
+			return
+		}
+
 		settingsPath := GetSettingsDir()
 		tempDir := filepath.Join(settingsPath, "Temp")
 		os.MkdirAll(tempDir, 0755)
@@ -646,59 +630,25 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 		fPng.Close()
 
 		var generatedFile string
-		if mode == "Quest" {
-			astcPath, err := FindTool(settingsPath, "astcenc-avx2.exe")
-			if err != nil {
-				dialog.ShowError(err, w)
-				return
-			}
-			tempAstcPath := filepath.Join(tempDir, "temp_thumb.astc")
-			cmd := exec.Command(astcPath, "-cs", tempPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w)
-				return
-			}
-
-			astcData, _ := os.ReadFile(tempAstcPath)
-			header := make([]byte, 16)
-			header[0], header[1], header[2], header[3] = 0x53, 0x80, 0x09, 0x00
-			binary.LittleEndian.PutUint16(header[4:], 6)
-			binary.LittleEndian.PutUint16(header[6:], 6)
-			binary.LittleEndian.PutUint16(header[8:], uint16(bounds.Dx()))
-			binary.LittleEndian.PutUint16(header[10:], uint16(bounds.Dy()))
-			finalData := append(header, astcData[16:]...)
-			generatedFile = filepath.Join(tempDir, "temp_thumb_stripped.bin")
-			os.WriteFile(generatedFile, finalData, 0644)
-		} else {
-			texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
-			if err != nil {
-				dialog.ShowError(err, w)
-				return
-			}
-			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
-			cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", tempPngPath)
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w)
-				return
-			}
-			baseName := strings.TrimSuffix(filepath.Base(tempPngPath), filepath.Ext(tempPngPath))
-			expectedOut := filepath.Join(tempDir, baseName+".dds")
-			os.Rename(expectedOut, generatedFile)
+		texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
+		if err != nil {
+			dialog.ShowError(err, w)
+			return
 		}
-
-		absInputDir := filepath.Join(settingsPath, "input-pcvr")
-		if state.Settings.Mode == "Quest" {
-			absInputDir = filepath.Join(settingsPath, "input-quest")
+		generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
+		cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", tempPngPath)
+		cmd.SysProcAttr = HiddenProcAttr()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w)
+			return
 		}
+		baseName := strings.TrimSuffix(filepath.Base(tempPngPath), filepath.Ext(tempPngPath))
+		expectedOut := filepath.Join(tempDir, baseName+".dds")
+		os.Rename(expectedOut, generatedFile)
 
-		thumbTexFolder := "beac1969cb7b8861"
-		thumbMetaFolder := "4a4c32c49300b8a0"
-		if state.Settings.Mode == "Quest" {
-			thumbTexFolder = "489bb35d53ca50e9"
-			thumbMetaFolder = "e2ef0854d0cd69b8"
-		}
+		absInputDir := state.StagingDir()
+		thumbTexFolder := state.Platform().TextureGPUTypeHash()
+		thumbMetaFolder := state.Platform().TextureMetaTypeHash()
 
 		texDir := filepath.Join(absInputDir, thumbTexFolder)
 		os.MkdirAll(texDir, 0755)
@@ -742,6 +692,11 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 
 	go func() {
 		defer fyne.Do(func() { btn.Enable() })
+
+		if state.Platform() == PlatformQuest {
+			stageQuestFromFile(state, symbol, selectedPngPath, "Texture")
+			return
+		}
 
 		settingsPath := GetSettingsDir()
 		tempDir := filepath.Join(settingsPath, "Temp")
@@ -796,47 +751,21 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 		var generatedFile string
 		var ddsData []byte
 
-		if state.Settings.Mode == "Quest" {
-			astcPath, err := FindTool(settingsPath, "astcenc-avx2.exe")
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
-			tempAstcPath := filepath.Join(tempDir, "temp_replacement.astc")
-			cmd := exec.Command(astcPath, "-cs", finalPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w) })
-				return
-			}
+		generatedFile = filepath.Join(tempDir, "temp_replacement.dds")
+		cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", finalPngPath)
+		cmd.SysProcAttr = HiddenProcAttr()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
+			return
+		}
+		baseName := strings.TrimSuffix(filepath.Base(finalPngPath), filepath.Ext(finalPngPath))
+		expectedOut := filepath.Join(tempDir, baseName+".dds")
+		os.Rename(expectedOut, generatedFile)
 
-			astcData, _ := os.ReadFile(tempAstcPath)
-			if len(astcData) < 16 {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to generate ASTC"), w) })
-				return
-			}
-
-			// Strip the 16 byte ASTC header
-			ddsData = astcData[16:]
-			generatedFile = filepath.Join(tempDir, "temp_replacement_stripped.bin")
-			os.WriteFile(generatedFile, ddsData, 0644)
-		} else {
-			generatedFile = filepath.Join(tempDir, "temp_replacement.dds")
-			cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", finalPngPath)
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
-				return
-			}
-			baseName := strings.TrimSuffix(filepath.Base(finalPngPath), filepath.Ext(finalPngPath))
-			expectedOut := filepath.Join(tempDir, baseName+".dds")
-			os.Rename(expectedOut, generatedFile)
-
-			ddsData, err = os.ReadFile(generatedFile)
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
+		ddsData, err = os.ReadFile(generatedFile)
+		if err != nil {
+			fyne.Do(func() { dialog.ShowError(err, w) })
+			return
 		}
 
 		ddsSize := uint32(len(ddsData))
@@ -872,4 +801,30 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 			dialog.ShowInformation("Success", "Texture and metadata updated for "+symbol, w)
 		})
 	}()
+}
+
+// stageQuestFromFile builds a Quest texture replacement from an image file and
+// reports the outcome. It runs off the UI goroutine; UI updates go through
+// fyne.Do.
+func stageQuestFromFile(state *AppState, symbol, imagePath, what string) {
+	w := state.Window
+	img, err := loadImageFile(imagePath)
+	if err != nil {
+		fyne.Do(func() { dialog.ShowError(fmt.Errorf("could not read %s: %w", filepath.Base(imagePath), err), w) })
+		return
+	}
+	rep, err := StageQuestTexture(state, symbol, img)
+	if err != nil {
+		fyne.Do(func() { dialog.ShowError(err, w) })
+		return
+	}
+	msg := what + " replaced: " + symbol + "\n\nRepack to apply it in game."
+	if rep.Streamed {
+		msg += "\n\nThis texture streams its largest mips separately, so up close the game may still show the original's detail."
+	}
+	fyne.Do(func() {
+		state.StatusLabel.SetText(what + " staged: " + symbol)
+		dialog.ShowInformation("Success", msg, w)
+		state.UpdateSidebarThumbnail(HexToSymbol(symbol))
+	})
 }

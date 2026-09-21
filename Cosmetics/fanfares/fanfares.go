@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -144,11 +145,15 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 		})
 	})
 
+	// Audio preview plays local .wav files through Windows' SoundPlayer via
+	// PowerShell, so it is a PC-mode feature only; Quest mode has no audio
+	// section at all.
 	audioDir := filepath.Join("Settings", "Audio", t.InternalName)
 	var audioWidgets []fyne.CanvasObject
-	audioWidgets = append(audioWidgets, widget.NewLabelWithStyle("Fanfare Audio Files", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
-	
-	if files, err := os.ReadDir(audioDir); err == nil {
+	if state.Platform() == data.PlatformQuest || runtime.GOOS != "windows" {
+		// no audio section
+	} else if files, err := os.ReadDir(audioDir); err == nil {
+		audioWidgets = append(audioWidgets, widget.NewLabelWithStyle("Fanfare Audio Files", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
 		for _, file := range files {
 			if !file.IsDir() && strings.HasSuffix(strings.ToLower(file.Name()), ".wav") {
 				wavPath := filepath.Join(audioDir, file.Name())
@@ -163,7 +168,9 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			}
 		}
 	} else {
-		audioWidgets = append(audioWidgets, widget.NewLabel("No audio files found for this fanfare."))
+		audioWidgets = append(audioWidgets,
+			widget.NewLabelWithStyle("Fanfare Audio Files", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabel("No audio files found for this fanfare."))
 	}
 
 	state.CategoryEditor.Objects = []fyne.CanvasObject{
