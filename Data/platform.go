@@ -257,3 +257,39 @@ func StockChunkCount(manifestBackupPath string, p Platform) int {
 	}
 	return n
 }
+
+// HasManifest reports whether dir is a game data directory, meaning it holds
+// the package manifest the editor repacks into.
+func HasManifest(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	_, err := os.Stat(ManifestPath(dir))
+	return err == nil
+}
+
+// ResolveDataPath turns a folder the user picked into the data directory
+// beneath it.  People pick the game folder, the _data folder or the runtime
+// folder itself, so each level of _data/5932408047/rad15/<runtime> is tried.
+// It returns "" when none of them holds a manifest.
+func ResolveDataPath(picked string, p Platform) string {
+	if picked == "" {
+		return ""
+	}
+	tail := []string{"_data", "5932408047", "rad15", p.RuntimeDirName()}
+	candidates := []string{picked}
+	for i := range tail {
+		candidates = append(candidates, filepath.Join(append([]string{picked}, tail[i:]...)...))
+	}
+	// A PC install is picked at its ready-at-dawn-echo-arena folder.
+	if idx := strings.Index(strings.ToLower(picked), "ready-at-dawn-echo-arena"); idx != -1 {
+		base := picked[:idx+len("ready-at-dawn-echo-arena")]
+		candidates = append(candidates, filepath.Join(append([]string{base}, tail...)...))
+	}
+	for _, c := range candidates {
+		if HasManifest(c) {
+			return c
+		}
+	}
+	return ""
+}

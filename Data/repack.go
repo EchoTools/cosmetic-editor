@@ -45,15 +45,6 @@ func CopyRecursive(src, dst string) error {
 	})
 }
 
-// RunExtract pulls the cosmetic database and textures out of the install.
-func RunExtract(state *AppState, echoDataPath string) error {
-	extractDir := filepath.Join(GetSettingsDir(), state.Platform().ExtractedDirName())
-	if err := os.MkdirAll(extractDir, 0755); err != nil {
-		return err
-	}
-	return ExtractPackage(echoDataPath, extractDir, ExtractTints, ExtractTextures)
-}
-
 // ExecuteRepackTool handles the building and repacking of modified assets.
 func ExecuteRepackTool(state *AppState, echoDataPath string) (string, error) {
 	settingsPath := GetSettingsDir()
@@ -95,111 +86,91 @@ func ExecuteRepackTool(state *AppState, echoDataPath string) (string, error) {
 	return fmt.Sprintf("Repacked %s into %s", filepath.Base(absInputDir), echoDataPath), nil
 }
 
-// ShowRepackDialog displays the multi-step repack UI to the user.
+// ShowRepackDialog shows the repack and revert controls.
 func ShowRepackDialog(state *AppState) {
 	w := state.Window
 	content := container.NewVBox()
 	modal := dialog.NewCustom("Repack Tool", "Close", content, w)
 	modal.Resize(fyne.NewSize(600, 450))
 
-	settingsPath := GetSettingsDir()
-	extractDir := filepath.Join(settingsPath, ExtractedDirName)
-	_, errExtract := os.Stat(extractDir)
-	extractedExists := errExtract == nil
-
 	var refreshUI func()
 	refreshUI = func() {
 		content.Objects = nil
+		content.Add(widget.NewLabelWithStyle("Repack changes into the game", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}))
 
-		if !extractedExists {
-			content.Add(widget.NewLabel("Step 1: Extract Original Tints"))
-			content.Add(widget.NewLabel("Selected EchoVR Data Path:"))
-			content.Add(widget.NewLabel(state.Settings.EchoVRDataPath))
-			content.Add(widget.NewButton("Extract", func() {
-				loading := dialog.NewCustom("Extracting...", "Cancel", widget.NewProgressBarInfinite(), w)
-				loading.Show()
-				go func() {
-					err := RunExtract(state, state.Settings.EchoVRDataPath)
-					loading.Hide()
-					if err != nil {
-						dialog.ShowError(err, w)
-					} else {
-						extractedExists = true
-						ShowRepackDialog(state)
-					}
-				}()
-			}))
-		} else {
-			content.Add(widget.NewLabelWithStyle("Step 2: Modify & Repack", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}))
-
-			// Revert Section
-			manifestPath := filepath.Join(state.Settings.EchoVRDataPath, "manifests", PackageName)
-			bakPath := manifestPath + ".bak"
-			_, errBak := os.Stat(bakPath)
-			bakExists := errBak == nil
-
-			revertUI := container.NewVBox()
-			if bakExists {
-				revertUI.Add(widget.NewLabel("Backup manifest found."))
-				btnRevert := widget.NewButton("Revert to Backup", func() {
-					loading := dialog.NewCustom("Reverting...", "Cancel", widget.NewProgressBarInfinite(), w)
-					loading.Show()
-					go func() {
-						defer loading.Hide()
-
-						// 1. Delete current manifest
-						os.Remove(manifestPath)
-						// 2. Rename .bak to original
-						err := os.Rename(bakPath, manifestPath)
-						if err != nil {
-							fyne.Do(func() { dialog.ShowError(err, w) })
-							return
-						}
-						// 3. Delete the chunks the repack appended.  A PC
-						// install ships _0.._2 so the first repack appends _3,
-						// while a Quest install ships only _0 and appends _1;
-						// deleting a fixed _3 removes the wrong file on Quest
-						// and misses later chunks on a twice-repacked PC.
-						stock := StockChunkCount(bakPath, state.Platform())
-						for n := stock; ; n++ {
-							chunk := PackageChunkPath(state.Settings.EchoVRDataPath, n)
-							if _, err := os.Stat(chunk); err != nil {
-								break
-							}
-							os.Remove(chunk)
-						}
-						os.Remove(bakPath + chunkCountSuffix)
-
-						fyne.Do(func() {
-							dialog.ShowInformation("Success", "Manifest restored and modified package chunks removed.", w)
-							refreshUI()
-						})
-					}()
-				})
-				btnRevert.Importance = widget.WarningImportance
-				revertUI.Add(btnRevert)
-			} else {
-				revertUI.Add(widget.NewLabel("No manifest backup found yet.\n(Backup is created automatically during repack)"))
-			}
-			content.Add(widget.NewCard("Revert Management", "", revertUI))
-			content.Add(widget.NewSeparator())
-
-			content.Add(widget.NewLabel("Ready to Repack changes into game."))
-			content.Add(widget.NewButton("REPACK & APPLY", func() {
-				loading := dialog.NewCustom("Repacking...", "Cancel", widget.NewProgressBarInfinite(), w)
-				loading.Show()
-				go func() {
-					output, err := ExecuteRepackTool(state, state.Settings.EchoVRDataPath)
-					loading.Hide()
-					if err != nil {
-						dialog.ShowError(err, w)
-					} else {
-						dialog.ShowInformation("Success", "Assets repacked and applied to game!", w)
-						fmt.Println(output)
-					}
-				}()
-			}))
+		dataDir := state.Settings.EchoVRDataPath
+		if !HasManifest(dataDir) {
+			content.Add(widget.NewLabel("Echo VR's data directory was not found:\n" + dataDir))
+			content.Refresh()
+			return
 		}
+
+		manifestPath := ManifestPath(dataDir)
+		bakPath := manifestPath + ".bak"
+		_, errBak := os.Stat(bakPath)
+
+		revertUI := container.NewVBox()
+		if errBak == nil {
+			revertUI.Add(widget.NewLabel("Backup manifest found."))
+			btnRevert := widget.NewButton("Revert to Backup", func() {
+				loading := dialog.NewCustom("Reverting...", "Cancel", widget.NewProgressBarInfinite(), w)
+				loading.Show()
+				go func() {
+					defer loading.Hide()
+
+					// 1. Put the original manifest back.
+					os.Remove(manifestPath)
+					if err := os.Rename(bakPath, manifestPath); err != nil {
+						fyne.Do(func() { dialog.ShowError(err, w) })
+						return
+					}
+					// 2. Delete the chunks the repack appended.  A PC install
+					// ships _0.._2 so the first repack appends _3, while a Quest
+					// install ships only _0 and appends _1; deleting a fixed _3
+					// removes the wrong file on Quest and misses later chunks on a
+					// twice-repacked PC.
+					stock := StockChunkCount(bakPath, state.Platform())
+					for n := stock; ; n++ {
+						chunk := PackageChunkPath(dataDir, n)
+						if _, err := os.Stat(chunk); err != nil {
+							break
+						}
+						os.Remove(chunk)
+					}
+					os.Remove(bakPath + chunkCountSuffix)
+
+					fyne.Do(func() {
+						dialog.ShowInformation("Success", "Manifest restored and modified package chunks removed.", w)
+						refreshUI()
+					})
+				}()
+			})
+			btnRevert.Importance = widget.WarningImportance
+			revertUI.Add(btnRevert)
+		} else {
+			revertUI.Add(widget.NewLabel("No manifest backup found yet.\n(Backup is created automatically during repack)"))
+		}
+		content.Add(widget.NewCard("Revert Management", "", revertUI))
+		content.Add(widget.NewSeparator())
+
+		content.Add(widget.NewLabel("Ready to repack changes into the game."))
+		content.Add(widget.NewButton("REPACK & APPLY", func() {
+			loading := dialog.NewCustom("Repacking...", "Cancel", widget.NewProgressBarInfinite(), w)
+			loading.Show()
+			go func() {
+				output, err := ExecuteRepackTool(state, dataDir)
+				fyne.Do(func() {
+					loading.Hide()
+					if err != nil {
+						dialog.ShowError(err, w)
+						return
+					}
+					dialog.ShowInformation("Success", "Assets repacked and applied to game!", w)
+					fmt.Println(output)
+					refreshUI()
+				})
+			}()
+		}))
 		content.Refresh()
 	}
 

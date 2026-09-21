@@ -1,6 +1,10 @@
 package data
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // TestTypeHashesMatchVerifiedValues pins every derived hash against the values
 // confirmed from the shipped binaries (quest_combat_port/data/hash_lookup.json,
@@ -74,5 +78,32 @@ func TestCosmeticDBAssetNames(t *testing.T) {
 	// half that is easy to forget.
 	if PlatformQuest.CosmeticDBAssetHashes()[1] == PlatformPC.CosmeticDBAssetHashes()[0] {
 		t.Error("the Quest-only asset name must differ from the PC one")
+	}
+}
+
+func TestResolveDataPath(t *testing.T) {
+	root := t.TempDir()
+	data := filepath.Join(root, "_data", "5932408047", "rad15", "android")
+	if err := os.MkdirAll(filepath.Join(data, "manifests"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ManifestPath(data), []byte("m"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Whichever level the user picks, the data directory is found.
+	for _, picked := range []string{
+		root,
+		filepath.Join(root, "_data"),
+		filepath.Join(root, "_data", "5932408047"),
+		filepath.Join(root, "_data", "5932408047", "rad15"),
+		data,
+	} {
+		if got := ResolveDataPath(picked, PlatformQuest); got != data {
+			t.Errorf("ResolveDataPath(%q) = %q, want %q", picked, got, data)
+		}
+	}
+	// The PC runtime folder is a different leaf, so a Quest tree is not a PC one.
+	if got := ResolveDataPath(root, PlatformPC); got != "" {
+		t.Errorf("a Quest tree resolved as PC data: %q", got)
 	}
 }

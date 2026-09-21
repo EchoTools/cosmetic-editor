@@ -328,39 +328,12 @@ func main() {
 	row2 := container.NewGridWithColumns(7, navButtons[8], navButtons[9], navButtons[10], navButtons[11], navButtons[12], navButtons[13], navButtons[14])
 	navArea := container.NewVBox(row1, row2)
 
-	// Action Bar Enhancement
-	var btnExtractAssets *widget.Button
-	btnExtractAssets = widget.NewButtonWithIcon("EXTRACT ASSETS", theme.DownloadIcon(), func() {
-		loading := dialog.NewCustom("Extracting Assets...", "Cancel", widget.NewProgressBarInfinite(), w)
-		loading.Show()
-		go func() {
-			err := data.RunExtract(state, state.Settings.EchoVRDataPath)
-			loading.Hide()
-			if err != nil {
-				dialog.ShowError(err, w)
-			} else {
-				dialog.ShowInformation("Success", "Assets extracted to pcvr-extracted folder.", w)
-				btnExtractAssets.Hide()
-			}
-		}()
-	})
-
-	extractedPath := state.Settings.ExtractedPath
-	if extractedPath == "" {
-		extractedPath = filepath.Join(data.GetSettingsDir(), data.ExtractedDirName)
-	}
-	if entries, err := os.ReadDir(extractedPath); err == nil && len(entries) > 0 {
-		btnExtractAssets.Hide()
-	}
-
 	btnRepack := widget.NewButtonWithIcon("REPACK PACKAGE", theme.StorageIcon(), func() {
 		data.ShowRepackDialog(state)
 	})
 	btnRepack.Importance = widget.HighImportance
 
 	btnSettings := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
-		extractedPath := widget.NewEntry()
-		extractedPath.SetText(state.Settings.ExtractedPath)
 		echoPath := widget.NewEntry()
 		echoPath.SetText(state.Settings.EchoVRDataPath)
 		cachePath := widget.NewEntry()
@@ -377,13 +350,14 @@ func main() {
 
 		form := &widget.Form{
 			Items: []*widget.FormItem{
-				{Text: "Extracted Path", Widget: makeBrowseItem(extractedPath)},
 				{Text: "EchoVR Path", Widget: makeBrowseItem(echoPath)},
 				{Text: "Cache Path", Widget: makeBrowseItem(cachePath)},
 			},
 			OnSubmit: func() {
-				state.Settings.ExtractedPath = extractedPath.Text
 				state.Settings.EchoVRDataPath = echoPath.Text
+				if p := data.ResolveDataPath(echoPath.Text, state.Platform()); p != "" {
+					state.Settings.EchoVRDataPath = p
+				}
 				state.Settings.TextureCachePath = cachePath.Text
 				saveSettings()
 			},
@@ -419,7 +393,7 @@ func main() {
 
 	actionBar := container.NewBorder(nil, nil, nil,
 		container.NewHBox(btnChooseMode, btnResetData, btnSettings),
-		container.NewVBox(btnExtractAssets, btnRepack),
+		container.NewVBox(btnRepack),
 	)
 
 	leftSide := container.NewBorder(
@@ -563,37 +537,31 @@ func main() {
 			state.ClearUI()
 			selectTab(0)
 
-			// Initial extraction check
-			extractedPath := state.Settings.ExtractedPath
-			if extractedPath == "" {
-				extractedPath = filepath.Join(data.GetSettingsDir(), data.ExtractedDirName)
-			}
-			if entries, err := os.ReadDir(extractedPath); err != nil || len(entries) == 0 {
-				dialog.ShowConfirm("Setup Required", "Please select your Echo VR folder to extract initial assets.\n\nNOTE: This extraction requires approximately 12.5GB of free disk space.", func(b bool) {
-					if b {
+			// Nothing is extracted: the database is built in and textures are
+			// read from the package one at a time.  All the editor needs is to
+			// know where the game's data directory is, so check that.
+			if !data.HasManifest(state.Settings.EchoVRDataPath) {
+				if data.IsAndroid() {
+					dialog.ShowInformation("Echo VR data not found",
+						"Could not find Echo VR's data on this headset.\n\n"+
+							"Make sure Echo VR is installed, and give this app \"All files access\" "+
+							"(Settings > Apps > EchoVR Cosmetics > Permissions), then restart it.", w)
+				} else {
+					dialog.ShowConfirm("Setup Required", "Select your Echo VR folder so changes can be repacked into it.", func(b bool) {
+						if !b {
+							return
+						}
 						data.PickFolder(state, "Select Echo VR Folder", func(path string) {
-							state.Settings.EchoVRDataPath = fixEchoVRPath(path)
+							resolved := data.ResolveDataPath(path, state.Platform())
+							if resolved == "" {
+								dialog.ShowError(fmt.Errorf("no Echo VR %s data found under %s", state.Platform(), path), w)
+								return
+							}
+							state.Settings.EchoVRDataPath = resolved
 							saveSettings()
-
-							loading := dialog.NewCustom("Extracting Initial Assets...", "Please Wait", widget.NewProgressBarInfinite(), w)
-							loading.Show()
-							go func() {
-								err := data.RunExtract(state, state.Settings.EchoVRDataPath)
-								loading.Hide()
-								if err != nil {
-									fyne.Do(func() { dialog.ShowError(err, w) })
-								} else {
-									fyne.Do(func() {
-										dialog.ShowInformation("Success", "Assets extracted successfully.", w)
-										if btnExtractAssets != nil {
-											btnExtractAssets.Hide()
-										}
-									})
-								}
-							}()
 						})
-					}
-				}, w)
+					}, w)
+				}
 			}
 		})
 	}()
