@@ -2,6 +2,7 @@ package data
 
 import (
 	"bytes"
+	"image"
 	"io"
 	"os"
 	"path/filepath"
@@ -80,6 +81,52 @@ func TestRepackQuestInstall(t *testing.T) {
 		}
 	}
 
+	// Also replace two textures: one with its texels inline in the header and
+	// one with a separate GPU payload, the two ways a Quest texture is stored.
+	replaced := map[string]bool{}
+	{
+		r, err := openPackageReader(dataDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metaType := HexToSymbol(p.TextureMetaTypeHash())
+		want := map[bool]bool{true: false, false: false} // inline -> found
+		for key := range r.index {
+			if key.typ != metaType || (want[true] && want[false]) {
+				continue
+			}
+			h := SymbolToHex(key.file)
+			orig, err := LoadTextureHeader(p, packageSource(dataDir), h)
+			if err != nil || !orig.TextureFormat().IsASTC() || orig.ArraySize > 1 || orig.ResidentWidth < 16 {
+				continue
+			}
+			inline := len(orig.Payload) > 0
+			if want[inline] {
+				continue
+			}
+			rep, err := BuildQuestTexture(orig, gradient(64, 64))
+			if err != nil {
+				t.Fatalf("build %s: %v", h, err)
+			}
+			write := func(folder string, b []byte) {
+				path := filepath.Join(staging, folder, h)
+				os.MkdirAll(filepath.Dir(path), 0755)
+				if err := os.WriteFile(path, b, 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write(p.TextureMetaTypeHash(), rep.Header)
+			if rep.GPU != nil {
+				write(p.TextureGPUTypeHash(), rep.GPU)
+			}
+			want[inline] = true
+			replaced[h] = inline
+		}
+		if len(replaced) != 2 {
+			t.Fatalf("found %d replaceable textures, want one inline and one with a GPU payload", len(replaced))
+		}
+	}
+
 	// 3. Repack.  The app closes the reader before repacking; do the same.
 	ClosePackageReader()
 	if err := RepackInto(dataDir, staging); err != nil {
@@ -106,7 +153,26 @@ func TestRepackQuestInstall(t *testing.T) {
 		}
 	}
 
-	// 6. Untouched assets still read and decode: the repack must not have
+	// 6. The replaced textures read back out of the package as the gradient.
+	for h, inline := range replaced {
+		img, err := DecodeTextureAsset(p, packageSource(dataDir), h)
+		if err != nil {
+			t.Errorf("replaced texture %s (inline=%v) does not decode after repack: %v", h, inline, err)
+			continue
+		}
+		nrgba, ok := img.(*image.NRGBA)
+		if !ok {
+			continue
+		}
+		b := nrgba.Bounds()
+		left := nrgba.NRGBAAt(b.Min.X, b.Min.Y+b.Dy()/2)
+		right := nrgba.NRGBAAt(b.Max.X-1, b.Min.Y+b.Dy()/2)
+		if int(right.R)-int(left.R) < 150 {
+			t.Errorf("replaced texture %s (inline=%v) did not read back as the replacement", h, inline)
+		}
+	}
+
+	// 7. Untouched assets still read and decode: the repack must not have
 	// damaged the frames it did not modify.
 	r, err := openPackageReader(dataDir)
 	if err != nil {
