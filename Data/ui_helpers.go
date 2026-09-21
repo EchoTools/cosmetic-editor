@@ -299,131 +299,36 @@ func FindExtractedAsset(extBase string, symbol int64, folderName string) string 
 	return ""
 }
 
-// EnsureTextureCached checks if a PNG exists in the cache and attempts to create it from extracted files if missing.
+// EnsureTextureCached makes sure a PNG preview of an asset exists in the cache,
+// decoding it in process.  It used to shell out to ms_texconv.exe, which is
+// Windows-only and cannot read the ASTC textures the Quest build ships.
 func EnsureTextureCached(state *AppState, hexStr string) {
 	if hexStr == "" || hexStr == "0" {
 		return
 	}
-
-	settingsPath := GetSettingsDir()
-	if state.Settings.TextureCachePath == "" {
-		state.Settings.TextureCachePath = filepath.Join(settingsPath, "texture_cache")
-	}
-
-	cacheDir, _ := filepath.Abs(state.Settings.TextureCachePath)
-	os.MkdirAll(cacheDir, 0755)
-
-	cachePath := filepath.Join(cacheDir, hexStr+".png")
-	if _, err := os.Stat(cachePath); err == nil {
+	safe, err := SafeHexFilename(hexStr)
+	if err != nil {
 		return
 	}
 
-	// Not in cache, search in extracted AND input folders
-	sourceFolders := []string{ThumbTexFolderPC, ThumbMetaFolderPC, TexTexFolderPC, TexMetaFolderPC}
-	inputBase := filepath.Join(settingsPath, InputDirNamePC)
-	if state.Settings.Mode == "Quest" {
-		sourceFolders = append([]string{ThumbTexFolderQuest, ThumbMetaFolderQuest, TexTexFolderQuest, TexMetaFolderQuest}, sourceFolders...)
-		inputBase = filepath.Join(settingsPath, InputDirNameQuest)
+	cacheDir := state.Settings.TextureCachePath
+	if cacheDir == "" {
+		cacheDir = filepath.Join(GetSettingsDir(), "texture_cache")
+		state.Settings.TextureCachePath = cacheDir
 	}
-
-	var extractedPath string
-	symVal := HexToSymbol(hexStr)
-
-	// 1. Try extracted folders
-	extPath := state.Settings.ExtractedPath
-	if extPath == "" {
-		extPath = filepath.Join(settingsPath, ExtractedDirName)
-	}
-
-	for _, folder := range sourceFolders {
-		path := FindExtractedAsset(extPath, symVal, folder)
-		if path != "" {
-			info, err := os.Stat(path)
-			if err == nil && info.Size() > 16 {
-				extractedPath = path
-				break
-			}
-		}
-	}
-
-	// 2. Try input folders (newly repacked assets)
-	if extractedPath == "" {
-		for _, folder := range sourceFolders {
-			path := FindExtractedAsset(inputBase, symVal, folder)
-			if path != "" {
-				info, err := os.Stat(path)
-				if err == nil && info.Size() > 16 {
-					extractedPath = path
-					fmt.Printf("[Cache] Found repacked asset for %s at: %s\n", hexStr, extractedPath)
-					break
-				}
-			}
-		}
-	}
-
-	if extractedPath == "" {
-		// Log failures for frame 0 to help debug
-		if strings.HasSuffix(hexStr, "0") || len(hexStr) > 14 {
-			absInput, _ := filepath.Abs(inputBase)
-			fmt.Printf("[Cache] Asset %s not found. Searched:\n  - %s\n  - %s\n", hexStr, extPath, absInput)
-		}
+	if _, err := os.Stat(filepath.Join(cacheDir, safe+".png")); err == nil {
 		return
 	}
 
+	if err := CacheTexturePNG(state, safe); err != nil {
+		if state.StatusLabel != nil {
+			state.StatusLabel.SetText("Texture " + safe + ": " + err.Error())
+		}
+		return
+	}
 	if state.StatusLabel != nil {
-		state.StatusLabel.SetText("Caching: " + hexStr + "...")
+		state.StatusLabel.SetText("Cached: " + safe)
 	}
-
-
-
-	tempDir := filepath.Join(settingsPath, "Temp")
-	os.MkdirAll(tempDir, 0755)
-	tempDds := filepath.Join(tempDir, hexStr+".dds")
-
-	// Read source data
-	srcData, err := os.ReadFile(extractedPath)
-	if err != nil {
-		return
-	}
-
-	// Extract standard DDS by stripping Echo VR custom header if necessary
-	ddsData := srcData
-	if len(srcData) > 256 && string(srcData[256:260]) == "DDS " {
-		ddsData = srcData[256:]
-	} else if len(srcData) > 0 && string(srcData[0:4]) != "DDS " {
-		// Log missing DDS magic if neither location matches, but still try to write just in case
-		fmt.Printf("[Cache] Warning: No DDS magic found in %s\n", extractedPath)
-	}
-
-	if err := os.WriteFile(tempDds, ddsData, 0644); err != nil {
-		return
-	}
-
-	texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
-	if err != nil {
-		if state.StatusLabel != nil {
-			state.StatusLabel.SetText("texconv not found")
-		}
-		return
-	}
-
-	// ms_texconv -ft png -o <outDir> -y <tempDds>
-	cmd := exec.Command(texconvPath, "-ft", "png", "-o", cacheDir, "-y", tempDds)
-	cmd.SysProcAttr = HiddenProcAttr()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		if state.StatusLabel != nil {
-			state.StatusLabel.SetText("texconv failed for " + hexStr)
-		}
-		fmt.Printf("texconv error: %v\nOutput: %s\n", err, string(out))
-		return
-	} else {
-		if state.StatusLabel != nil {
-			state.StatusLabel.SetText("Cached: " + hexStr)
-		}
-	}
-
-	// Cleanup
-	os.Remove(tempDds)
 }
 
 const (
@@ -962,10 +867,10 @@ func PickFolder(title string) (string, error) {
 	if title == "" {
 		title = "Select Folder"
 	}
-	
+
 	// Escape single quotes for PowerShell
 	title = strings.ReplaceAll(title, "'", "''")
-	
+
 	script := fmt.Sprintf(`
 Add-Type -AssemblyName System.Windows.Forms
 $f = New-Object System.Windows.Forms.OpenFileDialog
