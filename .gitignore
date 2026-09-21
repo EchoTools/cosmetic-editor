@@ -11,6 +11,7 @@
 /settings.json
 /Settings/*
 !/Settings/ms_texconv.exe
+!/Settings/texconv-LICENSE.txt
 
 # Local scratch
 __pycache__/
