@@ -151,3 +151,8 @@ func SymbolToHex(v int64) string {
 	}
 	return fmt.Sprintf("%016x", uint64(v))
 }
+
+// SymbolToHexU formats a Symbol as a lowercase hex string without "0x" prefix.
+func SymbolToHexU(v Symbol) string {
+	return fmt.Sprintf("%016x", uint64(v))
+}

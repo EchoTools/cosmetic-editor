@@ -52,12 +52,12 @@ func ParsePlatform(s string) Platform {
 // TypeHash returns the folder hash for a platform-suffixed resource type.
 // baseName is the type name without its platform tag, e.g. "CGTextureResource".
 func (p Platform) TypeHash(baseName string) string {
-	return SymbolToHex(int64(ToSymbol(baseName + p.TypeSuffix())))
+	return SymbolToHexU(ToSymbol(baseName + p.TypeSuffix()))
 }
 
 // GPUTypeHash returns the folder hash for a type's GPU sidecar.
 func (p Platform) GPUTypeHash(baseName string) string {
-	return SymbolToHex(int64(ToSymbol(baseName + p.TypeSuffix() + "GPU")))
+	return SymbolToHexU(ToSymbol(baseName + p.TypeSuffix() + "GPU"))
 }
 
 // CosmeticDBAssetNames lists the authored asset names the cosmetic database is
@@ -81,7 +81,7 @@ func (p Platform) CosmeticDBAssetHashes() []string {
 	names := p.CosmeticDBAssetNames()
 	out := make([]string, len(names))
 	for i, n := range names {
-		out[i] = SymbolToHex(int64(ToSymbol(n)))
+		out[i] = SymbolToHexU(ToSymbol(n))
 	}
 	return out
 }
@@ -92,7 +92,7 @@ func (p Platform) CosmeticDBAssetName() string { return p.CosmeticDBAssetNames()
 
 // CosmeticDBAssetHash is CosmeticDBAssetName hashed to its on-disk filename.
 func (p Platform) CosmeticDBAssetHash() string {
-	return SymbolToHex(int64(ToSymbol(p.CosmeticDBAssetName())))
+	return SymbolToHexU(ToSymbol(p.CosmeticDBAssetName()))
 }
 
 // CosmeticDBTypeHash is the folder the cosmetic database lives in.
