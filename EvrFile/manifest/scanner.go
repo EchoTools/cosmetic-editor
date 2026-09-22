@@ -98,8 +98,7 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 		if chunkNum < 0 {
 			return fmt.Errorf("invalid negative chunk number %d for path %s", chunkNum, path)
 		}
-		const maxInt = int64(^uint(0) >> 1)
-		if chunkNum > maxInt {
+		if chunkNum > math.MaxInt32 {
 			return fmt.Errorf("chunk number too large: %d for path %s", chunkNum, path)
 		}
 		chunkIdx := int(chunkNum)
