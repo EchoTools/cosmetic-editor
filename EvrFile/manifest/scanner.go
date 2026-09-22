@@ -3,6 +3,7 @@ package manifest
 import (
 	"fmt"
 	"io/fs"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -65,6 +66,9 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 		parseSymbol := func(s string) (int64, error) {
 			s = strings.TrimSuffix(s, filepath.Ext(s))
 			if u, err := strconv.ParseUint(s, 16, 64); err == nil {
+				if u > math.MaxInt64 {
+					return 0, fmt.Errorf("symbol out of int64 range: %s", s)
+				}
 				return int64(u), nil
 			}
 			return strconv.ParseInt(s, 10, 64)
