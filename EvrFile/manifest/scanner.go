@@ -91,6 +91,15 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 			return fmt.Errorf("file too large: %s (size %d exceeds %d bytes)", path, size, maxUint32)
 		}
 
+		if chunkNum < 0 {
+			return fmt.Errorf("invalid negative chunk number %d for path %s", chunkNum, path)
+		}
+		const maxInt = int64(^uint(0) >> 1)
+		if chunkNum > maxInt {
+			return fmt.Errorf("chunk number too large: %d for path %s", chunkNum, path)
+		}
+		chunkIdx := int(chunkNum)
+
 		file := ScannedFile{
 			TypeSymbol: typeSymbol,
 			FileSymbol: fileSymbol,
@@ -99,11 +108,11 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 		}
 
 		// Grow slice if needed
-		for int(chunkNum) >= len(files) {
+		for chunkIdx >= len(files) {
 			files = append(files, nil)
 		}
 
-		files[chunkNum] = append(files[chunkNum], file)
+		files[chunkIdx] = append(files[chunkIdx], file)
 		return nil
 	})
 
