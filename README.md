@@ -8,7 +8,7 @@ The Cosmetic Editor lets you modify everything about a cosmetic item: textures, 
 
 ### vs. Texture Editor
 
-The [Texture Editor](https://github.com/EchoTools/EchoVR-Texture-Editor) (goopsie's Python tool) gives you access to all ~12,000 individual textures in the game data, but is limited to raw texture replacement: you can swap a tag's image, but can't touch its metadata, name or rarity.
+The [Texture Editor](https://github.com/EchoTools/EchoVR-Texture-Editor) (he_is_the_cat's tool) gives you access to all ~12,000 individual textures in the game data, but is limited to raw texture replacement: you can swap a tag's image, but can't touch its metadata, name or rarity.
 
 The Cosmetic Editor is narrower in scope (cosmetics only, not all textures) but deeper, with full control over every cosmetic property. Both tools use the same folder layout (`Settings/texture_cache/`) and can be used side by side.
 
