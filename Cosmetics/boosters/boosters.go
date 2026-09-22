@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	data "github.com/EchoTools/cosmetic-editor/Data"
+	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +17,6 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"io"
 )
 
 var (
@@ -210,7 +211,12 @@ func importCustomBooster(state *data.AppState, existingBooster *data.CBooster) {
 
 					newEntry.CEntry.CosmeticTypeSymbol = int64(data.ToSymbol("booster"))
 					intName := fmt.Sprintf("rwd_booster_custom_%s", mf.MeshHashHex[:8])
-					newEntry.CEntry.InternalNameSymbol = int64(data.ToSymbol(intName))
+					internalNameSymbol := data.ToSymbol(intName)
+					if uint64(internalNameSymbol) > math.MaxInt64 {
+						dialog.ShowError(fmt.Errorf("generated internal name symbol is out of int64 range"), state.Window)
+						return
+					}
+					newEntry.CEntry.InternalNameSymbol = int64(internalNameSymbol)
 					newEntry.CEntry.InternalNameSymbol2 = newEntry.CEntry.InternalNameSymbol
 					copy(newEntry.CEntry.InternalNameString[:], []byte(intName))
 					copy(newEntry.CEntry.DisplayNameString[:], []byte("Custom Booster"))
