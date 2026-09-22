@@ -110,8 +110,20 @@ func InstallModZip(zipPath, stagingDir string, p Platform) (ModInstallResult, er
 		if f.FileInfo().IsDir() {
 			continue
 		}
-		parts := strings.Split(path.Clean(strings.ReplaceAll(f.Name, "\\", "/")), "/")
-		if len(parts) < 2 {
+		cleanName := path.Clean(strings.ReplaceAll(f.Name, "\\", "/"))
+		if path.IsAbs(cleanName) {
+			res.Ignored++
+			continue
+		}
+		parts := strings.Split(cleanName, "/")
+		hasParentRef := false
+		for _, part := range parts {
+			if part == ".." {
+				hasParentRef = true
+				break
+			}
+		}
+		if hasParentRef || len(parts) < 2 {
 			res.Ignored++
 			continue
 		}
