@@ -75,60 +75,61 @@ type AppState struct {
 	CurrentReplacementPath   string
 
 	NeedsRepack bool // Track if there are unsaved changes since last repack
+
+	// The texture each preview image is currently meant to show, so a decode
+	// that finishes late cannot overwrite a newer selection.
+	thumbSymbol, mainSymbol int64
 }
 
-// UpdateSidebarThumbnail refreshes the sidebar thumbnail from the local texture cache.
+// UpdateSidebarThumbnail shows a texture in the sidebar thumbnail. If its
+// preview is not cached yet, the thumbnail is cleared and filled in once the
+// texture has decoded in the background.
 func (s *AppState) UpdateSidebarThumbnail(symbol int64) {
 	if s.ThumbImage == nil {
 		return
 	}
-	if symbol == 0 || symbol == -1 {
-		s.ThumbImage.Resource = nil
-		s.ThumbImage.Image = nil
-		s.ThumbImage.Refresh()
-		return
-	}
-
-	hexStr := SymbolToHex(symbol)
-	EnsureTextureCached(s, hexStr)
-	cachePath := filepath.Join(s.Settings.TextureCachePath, hexStr+".png")
-
-	if _, err := os.Stat(cachePath); err == nil {
-		res, _ := fyne.LoadResourceFromPath(cachePath)
-		s.ThumbImage.Resource = res
-		s.ThumbImage.Image = nil
-	} else {
-		s.ThumbImage.Resource = nil
-		s.ThumbImage.Image = nil
-	}
-	s.ThumbImage.Refresh()
+	s.thumbSymbol = symbol
+	s.showTexture(s.ThumbImage, symbol, func() bool { return s.thumbSymbol == symbol })
 }
 
-// UpdateMainTexture refreshes the larger texture preview from the local cache.
+// UpdateMainTexture shows a texture in the large preview, the same way.
 func (s *AppState) UpdateMainTexture(symbol int64) {
 	if s.TextureImage == nil {
 		return
 	}
+	s.mainSymbol = symbol
+	s.showTexture(s.TextureImage, symbol, func() bool { return s.mainSymbol == symbol })
+}
+
+// showTexture puts a texture's preview into img. still reports whether img is
+// still meant to show this texture: a slow decode for an item the user has
+// already moved away from must not overwrite the newer one.
+func (s *AppState) showTexture(img *canvas.Image, symbol int64, still func() bool) {
+	set := func(path string) {
+		img.Image = nil
+		img.Resource = nil
+		if path != "" {
+			img.Resource, _ = fyne.LoadResourceFromPath(path)
+		}
+		img.Refresh()
+	}
 	if symbol == 0 || symbol == -1 {
-		s.TextureImage.Resource = nil
-		s.TextureImage.Image = nil
-		s.TextureImage.Refresh()
+		set("")
 		return
 	}
-
 	hexStr := SymbolToHex(symbol)
-	EnsureTextureCached(s, hexStr)
-	cachePath := filepath.Join(s.Settings.TextureCachePath, hexStr+".png")
-
-	if _, err := os.Stat(cachePath); err == nil {
-		res, _ := fyne.LoadResourceFromPath(cachePath)
-		s.TextureImage.Resource = res
-		s.TextureImage.Image = nil
-	} else {
-		s.TextureImage.Resource = nil
-		s.TextureImage.Image = nil
+	if safe, err := SafeHexFilename(hexStr); err == nil {
+		if p, ok := cachedPreviewPath(s, safe); ok {
+			set(p)
+			return
+		}
 	}
-	s.TextureImage.Refresh()
+	set("") // do not leave the previous item's picture up while decoding
+	RequestTexture(s, hexStr, func(path string) {
+		if still() {
+			set(path)
+		}
+	})
 }
 
 // ClearUI resets the common sidebar fields and clears any category-specific editor content.
@@ -332,7 +333,10 @@ func (s *AppState) HandleSave(tempPath string) error {
 	return os.WriteFile(tempPath, data, 0644)
 }
 
-// FindBaseMesh searches the extracted models/GPU subdirectories for the given hash.
+// FindBaseMesh returns a file holding the game's own mesh for the given hash,
+// which the Blender model import builds on. An extracted copy is used when
+// there is one; otherwise the mesh is read straight out of the game package,
+// since the editor no longer extracts the whole game first.
 func (s *AppState) FindBaseMesh(hashHex string) (string, error) {
 	extractedPath := s.Settings.ExtractedPath
 	if extractedPath == "" {
@@ -342,8 +346,14 @@ func (s *AppState) FindBaseMesh(hashHex string) (string, error) {
 	gpuPath := filepath.Join(extractedPath, "GPU")
 	entries, err := os.ReadDir(gpuPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read GPU models directory (%s): %v", gpuPath, err)
+		if p, perr := s.baseMeshFromPackage(hashHex); perr == nil {
+			return p, nil
+		} else {
+			return "", fmt.Errorf("model %s is not extracted (%s) and could not be read from the game package: %v", hashHex, gpuPath, perr)
+		}
 	}
+
+	strippedHash := strings.TrimLeft(hashHex, "0")
 
 	for _, e := range entries {
 		if e.IsDir() {
@@ -351,9 +361,97 @@ func (s *AppState) FindBaseMesh(hashHex string) (string, error) {
 			if _, err := os.Stat(candidate); err == nil {
 				return candidate, nil
 			}
+
+			if strippedHash != "" && strippedHash != hashHex {
+				candidateStripped := filepath.Join(gpuPath, e.Name(), strippedHash)
+				if _, err := os.Stat(candidateStripped); err == nil {
+					return candidateStripped, nil
+				}
+			}
 		}
 	}
+	if p, err := s.baseMeshFromPackage(hashHex); err == nil {
+		return p, nil
+	}
 	return "", fmt.Errorf("model %s not found in any GPU subfolder", hashHex)
+}
+
+// baseMeshFromPackage copies a mesh's GPU data out of the game package into
+// Temp/BaseMeshes and returns its path.
+func (s *AppState) baseMeshFromPackage(hashHex string) (string, error) {
+	file := HexToSymbol(hashHex)
+	if file == -1 {
+		return "", fmt.Errorf("invalid mesh hash %q", hashHex)
+	}
+	dataDir := s.Settings.EchoVRDataPath
+	r, err := openPackageReader(dataDir)
+	if err != nil {
+		return "", err
+	}
+	// The mesh is stored as the GPU half of one of the model resource types.
+	p := s.Platform()
+	var typeHex string
+	for _, base := range []string{"CGMeshListResource", "CGInstancedModelResource"} {
+		if _, ok := r.index[assetKey{HexToSymbol(p.GPUTypeHash(base)), file}]; ok {
+			typeHex = p.GPUTypeHash(base)
+			break
+		}
+	}
+	if typeHex == "" {
+		return "", fmt.Errorf("mesh %s is not in the game package", hashHex)
+	}
+	b, err := ReadPackageAsset(dataDir, typeHex, hashHex)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(GetSettingsDir(), "Temp", "BaseMeshes")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+	out := filepath.Join(dir, hashHex)
+	if err := os.WriteFile(out, b, 0644); err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+// Platform returns the platform this session is editing for.
+func (s *AppState) Platform() Platform { return ParsePlatform(s.Settings.Mode) }
+
+// StagingDir is the folder modified assets are written to before a repack.
+func (s *AppState) StagingDir() string {
+	return filepath.Join(GetSettingsDir(), s.Platform().InputDirName())
+}
+
+// CosmeticDBPaths lists every staged file the cosmetic database must be written
+// to for the current platform.
+func (s *AppState) CosmeticDBPaths() []string {
+	p := s.Platform()
+	dir := filepath.Join(s.StagingDir(), p.CosmeticDBTypeHash())
+	hashes := p.CosmeticDBAssetHashes()
+	out := make([]string, len(hashes))
+	for i, h := range hashes {
+		out[i] = filepath.Join(dir, h)
+	}
+	return out
+}
+
+// SaveCosmeticDB serialises the cosmetic list to every asset name the platform
+// publishes it under.
+func (s *AppState) SaveCosmeticDB() error {
+	b, err := CosmeticListToBytes(s.CosmeticList)
+	if err != nil {
+		return err
+	}
+	for _, path := range s.CosmeticDBPaths() {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, b, 0644); err != nil {
+			return fmt.Errorf("writing %s: %w", filepath.Base(path), err)
+		}
+	}
+	return nil
 }
 
 // AutoSave writes changes immediately to both the primary database and the autosave temp file.
@@ -362,29 +460,18 @@ func (s *AppState) AutoSave() error {
 		return nil // don't trigger saves while loading UI
 	}
 
-	inputDir := InputDirNamePC
-	tintFolder := TintFolderPC
-	tintFile := TintFileNamePC
-	if s.Settings.Mode == "Quest" {
-		inputDir = InputDirNameQuest
-		tintFolder = TintFolderQuest
-		tintFile = TintFileNameQuest
-	}
+	// 1. Save to the staged database file(s).  On Quest the database ships
+	// under two asset names and the runtime picks one by device spec tier, so
+	// writing only one leaves the edit inert on some headsets.
+	errDB := s.SaveCosmeticDB()
 
-	// 1. Save to main database file
-	dbDir := filepath.Join(GetSettingsDir(), inputDir, tintFolder)
-	os.MkdirAll(dbDir, 0755)
-	dbPath := filepath.Join(dbDir, tintFile)
-
-	errDB := s.HandleSave(dbPath)
-	
 	// 2. Save to autosave temp file
 	tempDir := filepath.Join(GetSettingsDir(), "Temp")
 	os.MkdirAll(tempDir, 0755)
 	tempFilePath := filepath.Join(tempDir, "temp_autosave.dat")
-	
+
 	errTemp := s.HandleSave(tempFilePath)
-	
+
 	if errDB == nil {
 		s.NeedsRepack = true
 		if s.StatusLabel != nil {
@@ -393,7 +480,7 @@ func (s *AppState) AutoSave() error {
 	} else if s.StatusLabel != nil {
 		s.StatusLabel.SetText("Auto-save failed: " + errDB.Error())
 	}
-	
+
 	if errDB != nil {
 		return errDB
 	}

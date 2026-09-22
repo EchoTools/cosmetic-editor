@@ -2,10 +2,15 @@ package fanfares
 
 import (
 	"bytes"
-	"github.com/EchoTools/cosmetic-editor/Data"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/EchoTools/cosmetic-editor/Data"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -135,11 +140,38 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	f2.OnChanged = func(string) { saveSounds() }
 
 	btnSelectPng := widget.NewButtonWithIcon("Set PNG Thumbnail", theme.FileImageIcon(), func() {
-		path, err := data.PickFile("PNG Files (*.png)|*.png|All Files (*.*)|*.*")
-		if err == nil && path != "" {
+		data.PickFile(state, []string{".png"}, func(path string) {
 			data.HandlePNGThumbnailReplacement(state, state.ThumbIdEntry.Text, path, nil) // Passing nil for button since it's not the same btn
-		}
+		})
 	})
+
+	// Audio preview plays local .wav files through Windows' SoundPlayer via
+	// PowerShell, so it is a PC-mode feature only; Quest mode has no audio
+	// section at all.
+	audioDir := filepath.Join("Settings", "Audio", t.InternalName)
+	var audioWidgets []fyne.CanvasObject
+	if state.Platform() == data.PlatformQuest || runtime.GOOS != "windows" {
+		// no audio section
+	} else if files, err := os.ReadDir(audioDir); err == nil {
+		audioWidgets = append(audioWidgets, widget.NewLabelWithStyle("Fanfare Audio Files", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}))
+		for _, file := range files {
+			if !file.IsDir() && strings.HasSuffix(strings.ToLower(file.Name()), ".wav") {
+				wavPath := filepath.Join(audioDir, file.Name())
+				absWavPath, _ := filepath.Abs(wavPath)
+				btn := widget.NewButtonWithIcon(fmt.Sprintf("Play %s", file.Name()), theme.MediaPlayIcon(), func() {
+					go func() {
+						cmd := exec.Command("powershell", "-c", fmt.Sprintf("(New-Object Media.SoundPlayer '%s').PlaySync()", absWavPath))
+						cmd.Run()
+					}()
+				})
+				audioWidgets = append(audioWidgets, btn)
+			}
+		}
+	} else {
+		audioWidgets = append(audioWidgets,
+			widget.NewLabelWithStyle("Fanfare Audio Files", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabel("No audio files found for this fanfare."))
+	}
 
 	state.CategoryEditor.Objects = []fyne.CanvasObject{
 		container.NewVBox(
@@ -148,6 +180,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 				widget.NewFormItem("Fanfare Sound ID 2", f2),
 			),
 			container.NewPadded(btnSelectPng),
+			container.NewVBox(audioWidgets...),
 		),
 	}
 	state.CategoryEditor.Refresh()

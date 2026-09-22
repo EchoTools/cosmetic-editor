@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"github.com/EchoTools/cosmetic-editor/Data"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -103,7 +102,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.CurrentAssetSymbol = data.SymbolToHex(t.TextureSymbol)
 	state.CurrentOriginalAssetPath = ""
 	if t.TextureSymbol != 0 {
-		p := filepath.Join(state.Settings.TextureCachePath, data.SymbolToHex(t.TextureSymbol)+".png")
+		p := data.CachedTexturePath(state, data.SymbolToHex(t.TextureSymbol))
 		if _, err := os.Stat(p); err == nil {
 			state.CurrentOriginalAssetPath = p
 		}
@@ -125,11 +124,10 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	}
 
 	selectPipPngBtn := widget.NewButton("Select Replacement PNG", func() {
-		path, err := data.PickFile("PNG Files (*.png)|*.png|All Files (*.*)|*.*")
-		if err == nil && path != "" {
+		data.PickFile(state, []string{".png"}, func(path string) {
 			state.CurrentReplacementPath = path
 			LoadToEditor(state, realIdx)
-		}
+		})
 	})
 	state.CategoryEditor.Objects = []fyne.CanvasObject{
 		widget.NewForm(widget.NewFormItem("Texture Symbol", texEnt)),

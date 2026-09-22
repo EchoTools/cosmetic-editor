@@ -75,11 +75,13 @@ def main():
             blender_args_3p.extend(["--export-dir", args.export_dir])
 
         print(f"Running blender for 3rd Person: {' '.join(blender_args_3p)}")
-        result_3p = subprocess.run(blender_args_3p, capture_output=True, text=True)
-        if result_3p.returncode != 0 or "Traceback" in result_3p.stdout or "Traceback" in result_3p.stderr or "Exception" in result_3p.stdout or "Exception" in result_3p.stderr:
+        result_3p = subprocess.run(blender_args_3p, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        stdout_3p = result_3p.stdout or ""
+        stderr_3p = result_3p.stderr or ""
+        if result_3p.returncode != 0 or "Traceback" in stdout_3p or "Traceback" in stderr_3p or "Exception" in stdout_3p or "Exception" in stderr_3p:
             print("Blender 3rd Person Output:")
-            print(result_3p.stdout)
-            print(result_3p.stderr, file=sys.stderr)
+            print(stdout_3p)
+            print(stderr_3p, file=sys.stderr)
             sys.exit(1 if result_3p.returncode == 0 else result_3p.returncode)
 
     # 1st Person Export (Arms Only) - Only for chassis!
@@ -101,11 +103,13 @@ def main():
             blender_args_1p.extend(["--export-dir", args.export_dir])
         
         print(f"Running blender for 1st Person: {' '.join(blender_args_1p)}")
-        result_1p = subprocess.run(blender_args_1p, capture_output=True, text=True)
-        if result_1p.returncode != 0 or "Traceback" in result_1p.stdout or "Traceback" in result_1p.stderr or "Exception" in result_1p.stdout or "Exception" in result_1p.stderr:
+        result_1p = subprocess.run(blender_args_1p, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        stdout_1p = result_1p.stdout or ""
+        stderr_1p = result_1p.stderr or ""
+        if result_1p.returncode != 0 or "Traceback" in stdout_1p or "Traceback" in stderr_1p or "Exception" in stdout_1p or "Exception" in stderr_1p:
             print("Blender 1st Person Output:")
-            print(result_1p.stdout)
-            print(result_1p.stderr, file=sys.stderr)
+            print(stdout_1p)
+            print(stderr_1p, file=sys.stderr)
             sys.exit(1 if result_1p.returncode == 0 else result_1p.returncode)
         
     manifest_path = os.path.join(output_dir, "manifest.json")

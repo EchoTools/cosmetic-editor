@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Custom manifest for the Android (Quest) build. Fyne's generated one only asks
+  for the legacy storage permissions, and on Android 11+ those do not reach
+  another app's folder. The game's data lives under
+  Android/media/com.readyatdawn.r15, which belongs to the game, so editing it in
+  place needs "All files access" (MANAGE_EXTERNAL_STORAGE). The user grants that
+  once, from the app's settings page or with:
+    adb shell appops set com.echotools.cosmeticeditor MANAGE_EXTERNAL_STORAGE allow
+  Android 10's requestLegacyExternalStorage is not set: the packager's manifest
+  compiler does not know the attribute, and Quest OS has long been past 10.
+
+  android.app.lib_name must stay in step with nothing else: the packager reads
+  it back out of this file.
+-->
+<manifest
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	package="com.echotools.cosmeticeditor"
+	android:versionCode="80100"
+	android:versionName="8.1.0">
+
+	<application android:label="EchoVR Cosmetics" android:debuggable="true">
+	<activity android:name="org.golang.app.GoNativeActivity"
+		android:label="EchoVR Cosmetics"
+		android:configChanges="orientation|keyboardHidden|uiMode|screenSize|screenLayout"
+		android:exported="true"
+		android:theme="@android:style/Theme">
+		<meta-data android:name="android.app.lib_name" android:value="EchoVRCosmetics" />
+		<intent-filter>
+			<action android:name="android.intent.action.MAIN" />
+			<category android:name="android.intent.category.LAUNCHER" />
+		</intent-filter>
+	</activity>
+
+	<receiver android:name="org.golang.app.FyneNotificationReceiver"
+			  android:exported="false" />
+	</application>
+
+	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+	<uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+</manifest>

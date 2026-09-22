@@ -4,6 +4,30 @@ All notable changes to EchoVR Cosmetics Editor are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [8.1.0] - 2026-09-21
+
+### Added
+- **Quest app**: the editor runs on the Quest as an Android APK, edits cosmetics and repacks them into Echo VR on the headset. It asks for "All files access" on first launch and finds the game's data by itself.
+- **Both Quest install locations**: Echo VR data under `Android/media/com.readyatdawn.r15` and `/sdcard/readyatdawn` is found, and a repack mods every install present.
+- **Quest textures**: pure-Go ASTC decoding for previews, and astc-encoder built in for replacements. Replacements match the original's size, mips, block size, colour space and inline/GPU storage.
+- **Install other mods** (Settings): adds a mod `.zip` made with other tools to the staged files, so the next repack applies it with the editor's own changes. Mods for the other platform are refused; a mod's own cosmetic database is skipped.
+- **Tint colour picker** next to each hex field; hex input is validated as you type.
+
+### Changed
+- evrFileTools is built in and runs in process; repacking no longer needs extraction. Previews are read straight from the game's package.
+- The cosmetic database is written under both Quest asset names (`r14_glb_global_root` and `_lowspec`).
+- Revert removes exactly the chunks the editor added (`_1` onwards on Quest, `_3` onwards on PC), using a chunk count recorded with the manifest backup.
+- Quest mode hides chassis, bracers, boosters and fanfare audio.
+- Model import (Blender/GLB) for chassis, bracers and boosters is PC only. The game's base mesh is now read straight from the package instead of an extracted copy.
+- The external `evrfiletools.exe`, `astcenc-avx2.exe` and helper DLLs have been removed; both tools are built in.
+
+### Fixed
+- Quest controller pointer no longer makes the UI scroll on its own or turns clicks into drags.
+- Tint edits no longer reset when clicking away; edits are saved to disk immediately.
+- Generate Thumbnail uses the tint's real colours instead of solid grey, and only appears on the Tints tab.
+- Selecting an item no longer freezes the app while its texture loads; previews load in the background.
+- Missing previews for banners, tags, emblems, decals, medals, pips and patterns.
+
 ## [1.1.1] - 2026-05-11
 
 ### Added

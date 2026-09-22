@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -46,192 +46,211 @@ func CopyRecursive(src, dst string) error {
 	})
 }
 
-// RunExtract handles the extraction of assets from the game files.
-func RunExtract(state *AppState, echoDataPath string, exports string) error {
-	settingsPath := GetSettingsDir()
-	toolPath, err := FindTool(settingsPath, "evrFileTools.exe")
-	if err != nil {
-		return err
+// DataPaths returns every game data directory a repack should be applied to.
+// On a headset Echo VR can be installed under Android/media, under
+// /sdcard/readyatdawn, or both, and every copy found is modded so the change
+// shows up whichever one the game loads. The configured directory, which is
+// the one previews are read from, always comes first.
+func (state *AppState) DataPaths() []string {
+	var out []string
+	add := func(dir string) {
+		if !HasManifest(dir) {
+			return
+		}
+		info, err := os.Stat(ManifestPath(dir))
+		if err != nil {
+			return
+		}
+		for _, have := range out {
+			if hi, err := os.Stat(ManifestPath(have)); err == nil && os.SameFile(hi, info) {
+				return
+			}
+		}
+		out = append(out, dir)
 	}
-
-	extractDir := filepath.Join(settingsPath, ExtractedDirName)
-	os.MkdirAll(extractDir, 0755)
-
-	cmd := exec.Command(toolPath,
-		"-mode", "extract",
-		"-package", PackageName,
-		"-data", echoDataPath,
-		"-output", extractDir,
-		"-export", exports,
-		"-force",
-	)
-	cmd.SysProcAttr = HiddenProcAttr()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("extraction failed: %v\nOutput: %s", err, string(out))
-	}
-	return nil
-}
-
-// ExecuteRepackTool handles the building and repacking of modified assets.
-func ExecuteRepackTool(state *AppState, echoDataPath string) (string, error) {
-	settingsPath := GetSettingsDir()
-	inputDir := InputDirNamePC
-	outputDir := OutputDirName
-	tintFolder := TintFolderPC
-	tintFile := TintFileNamePC
-	if state.Settings.Mode == "Quest" {
-		inputDir = InputDirNameQuest
-		tintFolder = TintFolderQuest
-		tintFile = TintFileNameQuest
-	}
-
-	absInputDir := filepath.Join(settingsPath, inputDir)
-	absOutputDir := filepath.Join(settingsPath, outputDir)
-
-	// Prepare Input File
-	tintDir := filepath.Join(absInputDir, tintFolder)
-	os.MkdirAll(tintDir, 0755)
-	outFile := filepath.Join(tintDir, tintFile)
-
-	b, err := CosmeticListToBytes(state.CosmeticList)
-	if err != nil {
-		return "", fmt.Errorf("failed to serialize tint data: %v", err)
-	}
-	if err := os.WriteFile(outFile, b, 0644); err != nil {
-		return "", fmt.Errorf("failed to write data file: %v", err)
-	}
-
-	// 1. Specialized Backup logic: Backup original manifest BEFORE tool runs
-	manifestPath := filepath.Join(echoDataPath, "manifests", PackageName)
-	bakPath := manifestPath + ".bak"
-	if _, err := os.Stat(bakPath); os.IsNotExist(err) {
-		// Only create if it doesn't exist to preserve original state
-		if data, err := os.ReadFile(manifestPath); err == nil {
-			os.WriteFile(bakPath, data, 0644)
-			fmt.Printf("[Backup] Created manifest backup: %s\n", bakPath)
+	add(state.Settings.EchoVRDataPath)
+	if IsAndroid() && state.Platform() == PlatformQuest {
+		for _, dir := range FindQuestDataPaths() {
+			add(dir)
 		}
 	}
+	return out
+}
 
-	// Run evrFileTools
-	os.MkdirAll(absOutputDir, 0755)
-	toolPath, err := FindTool(settingsPath, "evrFileTools.exe")
+// backupManifest saves an install's manifest, and how many package chunks it
+// has, before the first repack touches it. An existing backup is left alone,
+// since it is the one that describes the untouched install.
+func backupManifest(echoDataPath string) {
+	bakPath := ManifestPath(echoDataPath) + ".bak"
+	if _, err := os.Stat(bakPath); !os.IsNotExist(err) {
+		return
+	}
+	data, err := os.ReadFile(ManifestPath(echoDataPath))
 	if err != nil {
+		return
+	}
+	if err := os.WriteFile(bakPath, data, 0644); err != nil {
+		fmt.Printf("[Backup] Could not back up %s: %v\n", echoDataPath, err)
+		return
+	}
+	// Record how many chunks the install had before we appended any, so a
+	// later revert removes exactly the ones we added.
+	stock := CountPackageChunks(echoDataPath)
+	if err := RecordStockChunkCount(bakPath, stock); err != nil {
+		fmt.Printf("[Backup] Could not record chunk count: %v\n", err)
+	}
+	fmt.Printf("[Backup] Created manifest backup: %s (%d stock chunks)\n", bakPath, stock)
+}
+
+// ExecuteRepackTool stages the cosmetic database and repacks the staged files
+// into each of the given game data directories. It stops at the first
+// directory that fails and reports which ones were done.
+func ExecuteRepackTool(state *AppState, echoDataPaths []string) (string, error) {
+	if len(echoDataPaths) == 0 {
+		return "", fmt.Errorf("no Echo VR data directory to repack into")
+	}
+	absInputDir := state.StagingDir()
+	absOutputDir := filepath.Join(GetSettingsDir(), OutputDirName)
+
+	// Stage the cosmetic database under every asset name this platform
+	// publishes it as.
+	if err := state.SaveCosmeticDB(); err != nil {
+		return "", fmt.Errorf("failed to stage cosmetic database: %v", err)
+	}
+	if err := os.MkdirAll(absOutputDir, 0755); err != nil {
 		return "", err
 	}
 
-	cmd := exec.Command(toolPath,
-		"-mode", "build",
-		"-package", PackageName,
-		"-data", echoDataPath,
-		"-input", absInputDir,
-		"-output", absOutputDir,
-		"-force",
-		"-quick",
-	)
-	cmd.SysProcAttr = HiddenProcAttr()
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(out), fmt.Errorf("repack failed: %v\nOutput: %s", err, string(out))
+	// The package reader has to let go of the chunks first: the repack
+	// deletes stale ones.
+	ClosePackageReader()
+	var done []string
+	for _, dir := range echoDataPaths {
+		backupManifest(dir)
+		if err := RepackInto(dir, absInputDir); err != nil {
+			if len(done) > 0 {
+				return "", fmt.Errorf("repacked %s, but %s failed: %v",
+					strings.Join(done, ", "), dir, err)
+			}
+			return "", fmt.Errorf("%s: %v", dir, err)
+		}
+		done = append(done, dir)
 	}
-	state.NeedsRepack = false // Reset repack tracking
-	return string(out), nil
+	state.NeedsRepack = false
+	return "Repacked into:\n" + strings.Join(done, "\n"), nil
 }
 
-// ShowRepackDialog displays the multi-step repack UI to the user.
+// revertInstall puts back an install's backed-up manifest and deletes the
+// package chunks repacks appended to it. It does nothing to an install that
+// has no backup.
+func revertInstall(dataDir string, p Platform) error {
+	manifestPath := ManifestPath(dataDir)
+	bakPath := manifestPath + ".bak"
+	if _, err := os.Stat(bakPath); err != nil {
+		return nil
+	}
+	os.Remove(manifestPath)
+	if err := os.Rename(bakPath, manifestPath); err != nil {
+		return err
+	}
+	// A PC install ships _0.._2 so the first repack appends _3, while a Quest
+	// install ships only _0 and appends _1. The count recorded at backup time
+	// says where ours start.
+	stock := StockChunkCount(bakPath, p)
+	for n := stock; ; n++ {
+		chunk := PackageChunkPath(dataDir, n)
+		if _, err := os.Stat(chunk); err != nil {
+			break
+		}
+		os.Remove(chunk)
+	}
+	os.Remove(bakPath + chunkCountSuffix)
+	return nil
+}
+
+// ShowRepackDialog shows the repack and revert controls.
 func ShowRepackDialog(state *AppState) {
 	w := state.Window
 	content := container.NewVBox()
 	modal := dialog.NewCustom("Repack Tool", "Close", content, w)
 	modal.Resize(fyne.NewSize(600, 450))
 
-	settingsPath := GetSettingsDir()
-	extractDir := filepath.Join(settingsPath, ExtractedDirName)
-	_, errExtract := os.Stat(extractDir)
-	extractedExists := errExtract == nil
-
 	var refreshUI func()
 	refreshUI = func() {
 		content.Objects = nil
+		content.Add(widget.NewLabelWithStyle("Repack changes into the game", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}))
 
-		if !extractedExists {
-			content.Add(widget.NewLabel("Step 1: Extract Original Tints"))
-			content.Add(widget.NewLabel("Selected EchoVR Data Path:"))
-			content.Add(widget.NewLabel(state.Settings.EchoVRDataPath))
-			content.Add(widget.NewButton("Extract", func() {
-				loading := dialog.NewCustom("Extracting...", "Cancel", widget.NewProgressBarInfinite(), w)
+		dirs := state.DataPaths()
+		if len(dirs) == 0 {
+			content.Add(widget.NewLabel("Echo VR's data directory was not found:\n" + state.Settings.EchoVRDataPath))
+			content.Refresh()
+			return
+		}
+
+		where := "Echo VR install:"
+		if len(dirs) > 1 {
+			where = fmt.Sprintf("%d Echo VR installs found; all of them are modded:", len(dirs))
+		}
+		loc := widget.NewLabel(where + "\n" + strings.Join(dirs, "\n"))
+		loc.Wrapping = fyne.TextWrapBreak
+		content.Add(loc)
+
+		var backedUp []string
+		for _, dir := range dirs {
+			if _, err := os.Stat(ManifestPath(dir) + ".bak"); err == nil {
+				backedUp = append(backedUp, dir)
+			}
+		}
+
+		revertUI := container.NewVBox()
+		if len(backedUp) > 0 {
+			revertUI.Add(widget.NewLabel(fmt.Sprintf("Backup manifest found (%d of %d installs).", len(backedUp), len(dirs))))
+			btnRevert := widget.NewButton("Revert to Backup", func() {
+				loading := dialog.NewCustom("Reverting...", "Cancel", widget.NewProgressBarInfinite(), w)
 				loading.Show()
 				go func() {
-					err := RunExtract(state, state.Settings.EchoVRDataPath, "tints,textures,models")
-					loading.Hide()
-					if err != nil {
-						dialog.ShowError(err, w)
-					} else {
-						extractedExists = true
-						ShowRepackDialog(state)
-					}
-				}()
-			}))
-		} else {
-			content.Add(widget.NewLabelWithStyle("Step 2: Modify & Repack", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}))
-
-			// Revert Section
-			manifestPath := filepath.Join(state.Settings.EchoVRDataPath, "manifests", PackageName)
-			bakPath := manifestPath + ".bak"
-			_, errBak := os.Stat(bakPath)
-			bakExists := errBak == nil
-
-			revertUI := container.NewVBox()
-			if bakExists {
-				revertUI.Add(widget.NewLabel("Backup manifest found."))
-				btnRevert := widget.NewButton("Revert to Backup", func() {
-					loading := dialog.NewCustom("Reverting...", "Cancel", widget.NewProgressBarInfinite(), w)
-					loading.Show()
-					go func() {
-						defer loading.Hide()
-
-						// 1. Delete current manifest
-						os.Remove(manifestPath)
-						// 2. Rename .bak to original
-						err := os.Rename(bakPath, manifestPath)
-						if err != nil {
-							fyne.Do(func() { dialog.ShowError(err, w) })
+					defer fyne.Do(loading.Hide)
+					// Close the package reader first, or its open chunks
+					// cannot be deleted.
+					ClosePackageReader()
+					for _, dir := range backedUp {
+						if err := revertInstall(dir, state.Platform()); err != nil {
+							fyne.Do(func() { dialog.ShowError(fmt.Errorf("%s: %v", dir, err), w) })
 							return
 						}
-						// 3. Delete _3 package chunk
-						chunk3 := filepath.Join(state.Settings.EchoVRDataPath, "packages", PackageName+"_3")
-						os.Remove(chunk3)
+					}
+					fyne.Do(func() {
+						dialog.ShowInformation("Success", "Manifest restored and modified package chunks removed.", w)
+						refreshUI()
+					})
+				}()
+			})
+			btnRevert.Importance = widget.WarningImportance
+			revertUI.Add(btnRevert)
+		} else {
+			revertUI.Add(widget.NewLabel("No manifest backup found yet.\n(Backup is created automatically during repack)"))
+		}
+		content.Add(widget.NewCard("Revert Management", "", revertUI))
+		content.Add(widget.NewSeparator())
 
-						fyne.Do(func() {
-							dialog.ShowInformation("Success", "Manifest restored and modified package chunks removed.", w)
-							refreshUI()
-						})
-					}()
-				})
-				btnRevert.Importance = widget.WarningImportance
-				revertUI.Add(btnRevert)
-			} else {
-				revertUI.Add(widget.NewLabel("No manifest backup found yet.\n(Backup is created automatically during repack)"))
-			}
-			content.Add(widget.NewCard("Revert Management", "", revertUI))
-			content.Add(widget.NewSeparator())
-
-			content.Add(widget.NewLabel("Ready to Repack changes into game."))
-			content.Add(widget.NewButton("REPACK & APPLY", func() {
-				loading := dialog.NewCustom("Repacking...", "Cancel", widget.NewProgressBarInfinite(), w)
-				loading.Show()
-				go func() {
-					output, err := ExecuteRepackTool(state, state.Settings.EchoVRDataPath)
+		content.Add(widget.NewLabel("Ready to repack changes into the game."))
+		content.Add(widget.NewButton("REPACK & APPLY", func() {
+			loading := dialog.NewCustom("Repacking...", "Cancel", widget.NewProgressBarInfinite(), w)
+			loading.Show()
+			go func() {
+				output, err := ExecuteRepackTool(state, dirs)
+				fyne.Do(func() {
 					loading.Hide()
 					if err != nil {
 						dialog.ShowError(err, w)
-					} else {
-						dialog.ShowInformation("Success", "Assets repacked and applied to game!", w)
-						fmt.Println(output)
+						return
 					}
-				}()
-			}))
-		}
+					dialog.ShowInformation("Success", "Assets repacked and applied to game!\n\n"+output, w)
+					fmt.Println(output)
+					refreshUI()
+				})
+			}()
+		}))
 		content.Refresh()
 	}
 

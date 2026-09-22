@@ -229,8 +229,21 @@ func FindTool(settingsDir, toolName string) (string, error) {
 	return "", fmt.Errorf("tool '%s' not found", toolName)
 }
 
-// GetSettingsDir returns the absolute path to the Settings folder
+// settingsDir, when set, overrides where the app keeps its own files.
+var settingsDir string
+
+// SetSettingsDir fixes the folder the app stores settings, staged assets and
+// caches in.  Android has no writable directory beside the executable, so on a
+// headset this is set at startup from the app's private storage; leaving it
+// unset keeps the desktop behaviour of a "settings" folder next to the binary.
+func SetSettingsDir(dir string) { settingsDir = dir }
+
+// GetSettingsDir returns the absolute path to the Settings folder.
 func GetSettingsDir() string {
+	if settingsDir != "" {
+		return settingsDir
+	}
+
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
 
@@ -299,158 +312,67 @@ func FindExtractedAsset(extBase string, symbol int64, folderName string) string 
 	return ""
 }
 
-// EnsureTextureCached checks if a PNG exists in the cache and attempts to create it from extracted files if missing.
+// EnsureTextureCached makes sure a PNG preview of an asset exists in the cache,
+// decoding it in process.  It used to shell out to ms_texconv.exe, which is
+// Windows-only and cannot read the ASTC textures the Quest build ships.
 func EnsureTextureCached(state *AppState, hexStr string) {
 	if hexStr == "" || hexStr == "0" {
 		return
 	}
-
-	settingsPath := GetSettingsDir()
-	if state.Settings.TextureCachePath == "" {
-		state.Settings.TextureCachePath = filepath.Join(settingsPath, "texture_cache")
-	}
-
-	cacheDir, _ := filepath.Abs(state.Settings.TextureCachePath)
-	os.MkdirAll(cacheDir, 0755)
-
-	cachePath := filepath.Join(cacheDir, hexStr+".png")
-	if _, err := os.Stat(cachePath); err == nil {
+	safe, err := SafeHexFilename(hexStr)
+	if err != nil {
 		return
 	}
 
-	// Not in cache, search in extracted AND input folders
-	sourceFolders := []string{ThumbTexFolderPC, ThumbMetaFolderPC, TexTexFolderPC, TexMetaFolderPC}
-	inputBase := filepath.Join(settingsPath, InputDirNamePC)
-	if state.Settings.Mode == "Quest" {
-		sourceFolders = append([]string{ThumbTexFolderQuest, ThumbMetaFolderQuest, TexTexFolderQuest, TexMetaFolderQuest}, sourceFolders...)
-		inputBase = filepath.Join(settingsPath, InputDirNameQuest)
+	cacheDir := state.Settings.TextureCachePath
+	if cacheDir == "" {
+		cacheDir = filepath.Join(GetSettingsDir(), "texture_cache")
+		state.Settings.TextureCachePath = cacheDir
 	}
-
-	var extractedPath string
-	symVal := HexToSymbol(hexStr)
-
-	// 1. Try extracted folders
-	extPath := state.Settings.ExtractedPath
-	if extPath == "" {
-		extPath = filepath.Join(settingsPath, ExtractedDirName)
-	}
-
-	for _, folder := range sourceFolders {
-		path := FindExtractedAsset(extPath, symVal, folder)
-		if path != "" {
-			info, err := os.Stat(path)
-			if err == nil && info.Size() > 16 {
-				extractedPath = path
-				break
-			}
-		}
-	}
-
-	// 2. Try input folders (newly repacked assets)
-	if extractedPath == "" {
-		for _, folder := range sourceFolders {
-			path := FindExtractedAsset(inputBase, symVal, folder)
-			if path != "" {
-				info, err := os.Stat(path)
-				if err == nil && info.Size() > 16 {
-					extractedPath = path
-					fmt.Printf("[Cache] Found repacked asset for %s at: %s\n", hexStr, extractedPath)
-					break
-				}
-			}
-		}
-	}
-
-	if extractedPath == "" {
-		// Log failures for frame 0 to help debug
-		if strings.HasSuffix(hexStr, "0") || len(hexStr) > 14 {
-			absInput, _ := filepath.Abs(inputBase)
-			fmt.Printf("[Cache] Asset %s not found. Searched:\n  - %s\n  - %s\n", hexStr, extPath, absInput)
-		}
+	if _, err := os.Stat(filepath.Join(cacheDir, safe+".png")); err == nil {
 		return
 	}
 
+	if err := CacheTexturePNG(state, safe); err != nil {
+		if state.StatusLabel != nil {
+			state.StatusLabel.SetText("Texture " + safe + ": " + err.Error())
+		}
+		return
+	}
 	if state.StatusLabel != nil {
-		state.StatusLabel.SetText("Caching: " + hexStr + "...")
+		state.StatusLabel.SetText("Cached: " + safe)
 	}
-
-
-
-	tempDir := filepath.Join(settingsPath, "Temp")
-	os.MkdirAll(tempDir, 0755)
-	tempDds := filepath.Join(tempDir, hexStr+".dds")
-
-	// Read source data
-	srcData, err := os.ReadFile(extractedPath)
-	if err != nil {
-		return
-	}
-
-	// Extract standard DDS by stripping Echo VR custom header if necessary
-	ddsData := srcData
-	if len(srcData) > 256 && string(srcData[256:260]) == "DDS " {
-		ddsData = srcData[256:]
-	} else if len(srcData) > 0 && string(srcData[0:4]) != "DDS " {
-		// Log missing DDS magic if neither location matches, but still try to write just in case
-		fmt.Printf("[Cache] Warning: No DDS magic found in %s\n", extractedPath)
-	}
-
-	if err := os.WriteFile(tempDds, ddsData, 0644); err != nil {
-		return
-	}
-
-	texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
-	if err != nil {
-		if state.StatusLabel != nil {
-			state.StatusLabel.SetText("texconv not found")
-		}
-		return
-	}
-
-	// ms_texconv -ft png -o <outDir> -y <tempDds>
-	cmd := exec.Command(texconvPath, "-ft", "png", "-o", cacheDir, "-y", tempDds)
-	cmd.SysProcAttr = HiddenProcAttr()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		if state.StatusLabel != nil {
-			state.StatusLabel.SetText("texconv failed for " + hexStr)
-		}
-		fmt.Printf("texconv error: %v\nOutput: %s\n", err, string(out))
-		return
-	} else {
-		if state.StatusLabel != nil {
-			state.StatusLabel.SetText("Cached: " + hexStr)
-		}
-	}
-
-	// Cleanup
-	os.Remove(tempDds)
 }
 
 const (
-	PackageName = "48037dc70b0ecab2"
-
 	// Base Directories
-	ExtractedDirName = "pcvr-extracted"
-	OutputDirName    = "output-both"
-	BackupDirName    = "Backup"
+	OutputDirName = "output-both"
+	BackupDirName = "Backup"
+)
 
-	// PCVR Constants
-	InputDirNamePC    = "input-pcvr"
-	TintFolderPC      = "32f30fe361939dee"
-	TintFileNamePC    = "43934c379cf1e366"
-	ThumbTexFolderPC  = "beac1969cb7b8861"
-	ThumbMetaFolderPC = "4a4c32c49300b8a0"
-	TexTexFolderPC    = "beac1969cb7b8861"
-	TexMetaFolderPC   = "4a4c32c49300b8a0"
+// The per-platform folder and asset hashes below are derived from the authored
+// resource type names rather than written out, so PC and Quest cannot drift
+// apart.  See platform.go; Data/platform_test.go pins every one of them to the
+// values verified from the shipped game binaries.
+var (
+	// PCVR
+	InputDirNamePC    = PlatformPC.InputDirName()
+	ExtractedDirName  = PlatformPC.ExtractedDirName()
+	TintFolderPC      = PlatformPC.CosmeticDBTypeHash()
+	TintFileNamePC    = PlatformPC.CosmeticDBAssetHash()
+	ThumbTexFolderPC  = PlatformPC.TextureGPUTypeHash()
+	ThumbMetaFolderPC = PlatformPC.TextureMetaTypeHash()
+	TexTexFolderPC    = ThumbTexFolderPC
+	TexMetaFolderPC   = ThumbMetaFolderPC
 
-	// Quest Constants
-	InputDirNameQuest    = "quest-input"
-	TintFolderQuest      = "24cbfd54e9a7f2ea"
-	TintFileNameQuest    = "bb75979f708e523b"
-	ThumbTexFolderQuest  = "489bb35d53ca50e9"
-	ThumbMetaFolderQuest = "e2efe7289d5985b8"
-	TexTexFolderQuest    = "489bb35d53ca50e9"
-	TexMetaFolderQuest   = "e2efe7289d5985b8"
+	// Quest
+	InputDirNameQuest    = PlatformQuest.InputDirName()
+	TintFolderQuest      = PlatformQuest.CosmeticDBTypeHash()
+	TintFileNameQuest    = PlatformQuest.CosmeticDBAssetHash()
+	ThumbTexFolderQuest  = PlatformQuest.TextureGPUTypeHash()
+	ThumbMetaFolderQuest = PlatformQuest.TextureMetaTypeHash()
+	TexTexFolderQuest    = ThumbTexFolderQuest
+	TexMetaFolderQuest   = ThumbMetaFolderQuest
 )
 
 // HandlePNGThumbnailReplacement allows direct replacement of a thumbnail with a PNG file.
@@ -480,58 +402,33 @@ func HandlePNGThumbnailReplacement(state *AppState, symbol string, selectedPngPa
 			}
 		})
 
+		if state.Platform() == PlatformQuest {
+			stageQuestFromFile(state, symbol, selectedPngPath, "Thumbnail")
+			return
+		}
+
 		settingsPath := GetSettingsDir()
 		tempDir := filepath.Join(settingsPath, "Temp")
 		os.MkdirAll(tempDir, 0755)
 
 		// 1. Convert PNG to Correct Texture Format
 		var generatedFile string
-		if state.Settings.Mode == "Quest" {
-			astcPath, err := FindTool(settingsPath, "astcenc-avx2.exe")
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
-			tempAstcPath := filepath.Join(tempDir, "temp_thumb.astc")
-			cmd := exec.Command(astcPath, "-cs", selectedPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w) })
-				return
-			}
-			astcData, _ := os.ReadFile(tempAstcPath)
-			if len(astcData) < 16 {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to generate ASTC"), w) })
-				return
-			}
-			header := make([]byte, 16)
-			header[0], header[1], header[2], header[3] = 0x53, 0x80, 0x09, 0x00
-			binary.LittleEndian.PutUint16(header[4:], 6)
-			binary.LittleEndian.PutUint16(header[6:], 6)
-			// Rough estimate of size for header
-			header[8], header[9] = 0x00, 0x01 // 256
-			header[10], header[11] = 0x00, 0x01
-			finalData := append(header, astcData[16:]...)
-			generatedFile = filepath.Join(tempDir, "temp_thumb_stripped.bin")
-			os.WriteFile(generatedFile, finalData, 0644)
-		} else {
-			texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
-			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
-			cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", selectedPngPath)
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
-				return
-			}
-			// Microsoft texconv outputs to tempDir/basename(selectedPngPath).dds
-			baseName := strings.TrimSuffix(filepath.Base(selectedPngPath), filepath.Ext(selectedPngPath))
-			expectedOut := filepath.Join(tempDir, baseName+".dds")
-			os.Rename(expectedOut, generatedFile)
+		texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
+		if err != nil {
+			fyne.Do(func() { dialog.ShowError(err, w) })
+			return
 		}
+		generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
+		cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", selectedPngPath)
+		cmd.SysProcAttr = HiddenProcAttr()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
+			return
+		}
+		// Microsoft texconv outputs to tempDir/basename(selectedPngPath).dds
+		baseName := strings.TrimSuffix(filepath.Base(selectedPngPath), filepath.Ext(selectedPngPath))
+		expectedOut := filepath.Join(tempDir, baseName+".dds")
+		os.Rename(expectedOut, generatedFile)
 
 		// 2. Repack
 		inputDir := InputDirNamePC
@@ -652,16 +549,18 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 	loading.Show()
 
 	go func() {
-		defer loading.Hide()
+		defer fyne.Do(loading.Hide)
 
 		if len(EmbeddedTemplate) == 0 {
-			dialog.ShowError(fmt.Errorf("template_thumb.png not found! Please place it in the root directory."), w)
+			fyne.Do(func() {
+				dialog.ShowError(fmt.Errorf("template_thumb.png not found! Please place it in the root directory."), w)
+			})
 			return
 		}
 
 		img, _, err := image.Decode(bytes.NewReader(EmbeddedTemplate))
 		if err != nil {
-			dialog.ShowError(fmt.Errorf("failed to decode template: %v", err), w)
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to decode template: %v", err), w) })
 			return
 		}
 
@@ -676,42 +575,15 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 		cPrim := parseColor(primHexTxt)
 		cSec := parseColor(secHexTxt)
 
-		srcPrimary := color.RGBA{0x9F, 0x12, 0x13, 0xFF}
-		srcSecondary := color.RGBA{0xEC, 0xDB, 0x10, 0xFF}
+		dst := RecolorTintTemplate(img, cPrim, cSec)
 
-		isSimilar := func(c1, c2 color.RGBA, threshold float64) bool {
-			rDiff := float64(c1.R) - float64(c2.R)
-			gDiff := float64(c1.G) - float64(c2.G)
-			bDiff := float64(c1.B) - float64(c2.B)
-			return math.Sqrt(rDiff*rDiff+gDiff*gDiff+bDiff*bDiff) < threshold
-		}
-
-		bounds := img.Bounds()
-		dst := image.NewRGBA(bounds)
-
-		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-			for x := bounds.Min.X; x < bounds.Max.X; x++ {
-				srcC := img.At(x, y)
-				r, g, b, a := srcC.RGBA()
-				currColor := color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(a >> 8)}
-
-				finalColor := currColor
-				wasReplaced := false
-				if isSimilar(currColor, srcPrimary, 20.0) {
-					finalColor = color.RGBA{cPrim.R, cPrim.G, cPrim.B, currColor.A}
-					wasReplaced = true
-				} else if isSimilar(currColor, srcSecondary, 20.0) {
-					finalColor = color.RGBA{cSec.R, cSec.G, cSec.B, currColor.A}
-					wasReplaced = true
-				}
-
-				if wasReplaced {
-					finalColor.R = uint8(float32(finalColor.R) * 0.6)
-					finalColor.G = uint8(float32(finalColor.G) * 0.6)
-					finalColor.B = uint8(float32(finalColor.B) * 0.6)
-				}
-				dst.Set(x, y, finalColor)
+		if state.Platform() == PlatformQuest {
+			if _, err := StageQuestTexture(state, idStr, dst); err != nil {
+				fyne.Do(func() { dialog.ShowError(err, w) })
+				return
 			}
+			fyne.Do(func() { dialog.ShowInformation("Success", "Thumbnail generated: "+idStr, w) })
+			return
 		}
 
 		settingsPath := GetSettingsDir()
@@ -724,65 +596,31 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 		fPng.Close()
 
 		var generatedFile string
-		if mode == "Quest" {
-			astcPath, err := FindTool(settingsPath, "astcenc-avx2.exe")
-			if err != nil {
-				dialog.ShowError(err, w)
-				return
-			}
-			tempAstcPath := filepath.Join(tempDir, "temp_thumb.astc")
-			cmd := exec.Command(astcPath, "-cs", tempPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w)
-				return
-			}
-
-			astcData, _ := os.ReadFile(tempAstcPath)
-			header := make([]byte, 16)
-			header[0], header[1], header[2], header[3] = 0x53, 0x80, 0x09, 0x00
-			binary.LittleEndian.PutUint16(header[4:], 6)
-			binary.LittleEndian.PutUint16(header[6:], 6)
-			binary.LittleEndian.PutUint16(header[8:], uint16(bounds.Dx()))
-			binary.LittleEndian.PutUint16(header[10:], uint16(bounds.Dy()))
-			finalData := append(header, astcData[16:]...)
-			generatedFile = filepath.Join(tempDir, "temp_thumb_stripped.bin")
-			os.WriteFile(generatedFile, finalData, 0644)
-		} else {
-			texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
-			if err != nil {
-				dialog.ShowError(err, w)
-				return
-			}
-			generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
-			cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", tempPngPath)
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w)
-				return
-			}
-			baseName := strings.TrimSuffix(filepath.Base(tempPngPath), filepath.Ext(tempPngPath))
-			expectedOut := filepath.Join(tempDir, baseName+".dds")
-			os.Rename(expectedOut, generatedFile)
+		texconvPath, err := FindTool(settingsPath, "ms_texconv.exe")
+		if err != nil {
+			fyne.Do(func() { dialog.ShowError(err, w) })
+			return
 		}
-
-		absInputDir := filepath.Join(settingsPath, "input-pcvr")
-		if state.Settings.Mode == "Quest" {
-			absInputDir = filepath.Join(settingsPath, "input-quest")
+		generatedFile = filepath.Join(tempDir, "temp_thumb.dds")
+		cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", tempPngPath)
+		cmd.SysProcAttr = HiddenProcAttr()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
+			return
 		}
+		baseName := strings.TrimSuffix(filepath.Base(tempPngPath), filepath.Ext(tempPngPath))
+		expectedOut := filepath.Join(tempDir, baseName+".dds")
+		os.Rename(expectedOut, generatedFile)
 
-		thumbTexFolder := "beac1969cb7b8861"
-		thumbMetaFolder := "4a4c32c49300b8a0"
-		if state.Settings.Mode == "Quest" {
-			thumbTexFolder = "489bb35d53ca50e9"
-			thumbMetaFolder = "e2ef0854d0cd69b8"
-		}
+		absInputDir := state.StagingDir()
+		thumbTexFolder := state.Platform().TextureGPUTypeHash()
+		thumbMetaFolder := state.Platform().TextureMetaTypeHash()
 
 		texDir := filepath.Join(absInputDir, thumbTexFolder)
 		os.MkdirAll(texDir, 0755)
 		targetTex := filepath.Join(texDir, idStr)
 		if err := os.Rename(generatedFile, targetTex); err != nil {
-			dialog.ShowError(fmt.Errorf("failed to move generated thumbnail: %w", err), w)
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to move generated thumbnail: %w", err), w) })
 			return
 		}
 
@@ -791,13 +629,13 @@ func GenerateAndSaveThumbnail(state *AppState, primHexTxt, secHexTxt, idStr stri
 
 		fi, err := os.Stat(targetTex)
 		if err != nil {
-			dialog.ShowError(fmt.Errorf("failed to stat generated thumbnail: %w", err), w)
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to stat generated thumbnail: %w", err), w) })
 			return
 		}
 		WriteMetadata(filepath.Join(metaDir, idStr), mode, "", uint32(fi.Size()))
 
 		os.Remove(tempPngPath)
-		dialog.ShowInformation("Success", "Thumbnail generated: "+idStr, w)
+		fyne.Do(func() { dialog.ShowInformation("Success", "Thumbnail generated: "+idStr, w) })
 	}()
 }
 
@@ -820,6 +658,11 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 
 	go func() {
 		defer fyne.Do(func() { btn.Enable() })
+
+		if state.Platform() == PlatformQuest {
+			stageQuestFromFile(state, symbol, selectedPngPath, "Texture")
+			return
+		}
 
 		settingsPath := GetSettingsDir()
 		tempDir := filepath.Join(settingsPath, "Temp")
@@ -874,47 +717,21 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 		var generatedFile string
 		var ddsData []byte
 
-		if state.Settings.Mode == "Quest" {
-			astcPath, err := FindTool(settingsPath, "astcenc-avx2.exe")
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
-			tempAstcPath := filepath.Join(tempDir, "temp_replacement.astc")
-			cmd := exec.Command(astcPath, "-cs", finalPngPath, tempAstcPath, "6x6", "-medium")
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("astcenc failed: %s", out), w) })
-				return
-			}
+		generatedFile = filepath.Join(tempDir, "temp_replacement.dds")
+		cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", finalPngPath)
+		cmd.SysProcAttr = HiddenProcAttr()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
+			return
+		}
+		baseName := strings.TrimSuffix(filepath.Base(finalPngPath), filepath.Ext(finalPngPath))
+		expectedOut := filepath.Join(tempDir, baseName+".dds")
+		os.Rename(expectedOut, generatedFile)
 
-			astcData, _ := os.ReadFile(tempAstcPath)
-			if len(astcData) < 16 {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("failed to generate ASTC"), w) })
-				return
-			}
-
-			// Strip the 16 byte ASTC header
-			ddsData = astcData[16:]
-			generatedFile = filepath.Join(tempDir, "temp_replacement_stripped.bin")
-			os.WriteFile(generatedFile, ddsData, 0644)
-		} else {
-			generatedFile = filepath.Join(tempDir, "temp_replacement.dds")
-			cmd := exec.Command(texconvPath, "-f", "BC7_UNORM", "-o", tempDir, "-y", finalPngPath)
-			cmd.SysProcAttr = HiddenProcAttr()
-			if out, err := cmd.CombinedOutput(); err != nil {
-				fyne.Do(func() { dialog.ShowError(fmt.Errorf("texconv failed: %s", out), w) })
-				return
-			}
-			baseName := strings.TrimSuffix(filepath.Base(finalPngPath), filepath.Ext(finalPngPath))
-			expectedOut := filepath.Join(tempDir, baseName+".dds")
-			os.Rename(expectedOut, generatedFile)
-
-			ddsData, err = os.ReadFile(generatedFile)
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
+		ddsData, err = os.ReadFile(generatedFile)
+		if err != nil {
+			fyne.Do(func() { dialog.ShowError(err, w) })
+			return
 		}
 
 		ddsSize := uint32(len(ddsData))
@@ -952,62 +769,28 @@ func HandleTextureReplacement(state *AppState, symbol string, selectedPngPath st
 	}()
 }
 
-// PickFolder opens a native Windows folder selection dialog using PowerShell.
-// It uses the OpenFileDialog hack to provide the modern Windows Explorer UI instead of the old FolderBrowserDialog.
-func PickFolder(title string) (string, error) {
-	if title == "" {
-		title = "Select Folder"
-	}
-	
-	// Escape single quotes for PowerShell
-	title = strings.ReplaceAll(title, "'", "''")
-	
-	script := fmt.Sprintf(`
-Add-Type -AssemblyName System.Windows.Forms
-$f = New-Object System.Windows.Forms.OpenFileDialog
-$f.ValidateNames = $false
-$f.CheckFileExists = $false
-$f.CheckPathExists = $true
-$f.FileName = "Folder Selection."
-$f.Title = '%s'
-if ($f.ShowDialog() -eq 'OK') { Split-Path $f.FileName }
-`, title)
-	cmd := exec.Command("powershell", "-Command", script)
-	cmd.SysProcAttr = HiddenProcAttr()
-	out, err := cmd.Output()
+// stageQuestFromFile builds a Quest texture replacement from an image file and
+// reports the outcome. It runs off the UI goroutine; UI updates go through
+// fyne.Do.
+func stageQuestFromFile(state *AppState, symbol, imagePath, what string) {
+	w := state.Window
+	img, err := loadImageFile(imagePath)
 	if err != nil {
-		return "", err
+		fyne.Do(func() { dialog.ShowError(fmt.Errorf("could not read %s: %w", filepath.Base(imagePath), err), w) })
+		return
 	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-// PickFile opens a native Windows file selection dialog using PowerShell.
-//
-// SECURITY NOTE: the filter string is interpolated directly into a PowerShell
-// script that is passed to -Command.  A single quote (') in the filter would
-// terminate the PS string and allow arbitrary command injection.  All current
-// call-sites use hardcoded literals without single quotes, so the immediate
-// risk is low, but callers MUST NOT pass user-controlled input here without
-// first sanitizing it.  The sanitization below strips single quotes as a
-// defence-in-depth measure.
-func PickFile(fallbackFilter string) (string, error) {
-	filter := fallbackFilter
-	if filter == "" {
-		filter = "All Files (*.*)|*.*"
-	}
-	// Strip single-quote characters to prevent PowerShell string-escape injection.
-	filter = strings.ReplaceAll(filter, "'", "")
-	script := fmt.Sprintf(`
-Add-Type -AssemblyName System.Windows.Forms
-$f = New-Object Windows.Forms.OpenFileDialog
-$f.Filter = '%s'
-if ($f.ShowDialog() -eq 'OK') { $f.FileName }
-`, filter)
-	cmd := exec.Command("powershell", "-Command", script)
-	cmd.SysProcAttr = HiddenProcAttr()
-	out, err := cmd.Output()
+	rep, err := StageQuestTexture(state, symbol, img)
 	if err != nil {
-		return "", err
+		fyne.Do(func() { dialog.ShowError(err, w) })
+		return
 	}
-	return strings.TrimSpace(string(out)), nil
+	msg := what + " replaced: " + symbol + "\n\nRepack to apply it in game."
+	if rep.Streamed {
+		msg += "\n\nThis texture streams its largest mips separately, so up close the game may still show the original's detail."
+	}
+	fyne.Do(func() {
+		state.StatusLabel.SetText(what + " staged: " + symbol)
+		dialog.ShowInformation("Success", msg, w)
+		state.UpdateSidebarThumbnail(HexToSymbol(symbol))
+	})
 }

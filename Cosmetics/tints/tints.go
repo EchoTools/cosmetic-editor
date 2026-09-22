@@ -4,14 +4,20 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
-	data "github.com/EchoTools/cosmetic-editor/Data"
+	"errors"
 	"fmt"
+	"image/color"
 	"math"
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	data "github.com/EchoTools/cosmetic-editor/Data"
 )
 
 // CTint holds the editable fields for a tint cosmetic entry.
@@ -135,55 +141,115 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 	state.RaritySelect.SetSelected(state.GetRarityName(t.Rarity))
 	state.UpdateSidebarThumbnail(t.ThumbnailSymbol)
 
-	// Note: Original main.go swaps these in the UI display
-	pHex := widget.NewEntry()
-	pHex.SetText(fmt.Sprintf("%02X%02X%02X", int(t.SecondaryColor_R*255), int(t.SecondaryColor_G*255), int(t.SecondaryColor_B*255)))
-	sHex := widget.NewEntry()
-	sHex.SetText(fmt.Sprintf("%02X%02X%02X", int(t.PrimaryColor_R*255), int(t.PrimaryColor_G*255), int(t.PrimaryColor_B*255)))
-
 	state.CurrentAssetSymbol = data.SymbolToHex(t.ThumbnailSymbol)
 
-	saveColors := func() {
-		if state.IsLoadingEntry {
-			return
-		}
-		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
-
-		parseAndWrite := func(hexStr string, offset int) {
-			hexStr = strings.TrimPrefix(hexStr, "#")
-			b, err := hex.DecodeString(hexStr)
-			if err != nil || len(b) < 3 {
-				return
-			}
-
-			r := float32(b[0]) / 255.0
-			g := float32(b[1]) / 255.0
-			bl := float32(b[2]) / 255.0
-
-			if len(entry.CEntryExtData) < offset+12 {
-				return
-			}
-			binary.LittleEndian.PutUint32(entry.CEntryExtData[offset:offset+4], math.Float32bits(r))
-			binary.LittleEndian.PutUint32(entry.CEntryExtData[offset+4:offset+8], math.Float32bits(g))
-			binary.LittleEndian.PutUint32(entry.CEntryExtData[offset+8:offset+12], math.Float32bits(bl))
-		}
-
-		// Swap back when saving: UI pHex is Secondary, sHex is Primary
-		parseAndWrite(sHex.Text, 0)
-		parseAndWrite(pHex.Text, 12)
-	}
-	pHex.OnChanged = func(string) { saveColors() }
-	sHex.OnChanged = func(string) { saveColors() }
-
+	// The UI has always shown the colour stored second as "Primary" and the
+	// first as "Secondary"; that is kept so existing users are not confused.
+	// The offsets are into the tint's 24-byte colour data.
 	state.CategoryEditor.Objects = []fyne.CanvasObject{
 		widget.NewForm(
-			widget.NewFormItem("Primary Color", pHex),
-			widget.NewFormItem("Secondary Color", sHex),
+			widget.NewFormItem("Primary Color", colorField(state, realIdx, 12,
+				color.NRGBA{toByte(t.SecondaryColor_R), toByte(t.SecondaryColor_G), toByte(t.SecondaryColor_B), 255})),
+			widget.NewFormItem("Secondary Color", colorField(state, realIdx, 0,
+				color.NRGBA{toByte(t.PrimaryColor_R), toByte(t.PrimaryColor_G), toByte(t.PrimaryColor_B), 255})),
 		),
 	}
 	state.CategoryEditor.Refresh()
 
 	state.IsLoadingEntry = false
+}
+
+func toByte(f float32) uint8 {
+	return uint8(math.Max(0, math.Min(255, math.Round(float64(f)*255))))
+}
+
+// hexColor parses exactly six hex digits, with or without a leading #.
+func hexColor(s string) (color.NRGBA, bool) {
+	s = strings.TrimPrefix(strings.TrimSpace(s), "#")
+	if len(s) != 6 {
+		return color.NRGBA{}, false
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return color.NRGBA{}, false
+	}
+	return color.NRGBA{b[0], b[1], b[2], 255}, true
+}
+
+// colorField edits one of a tint's two colours: a swatch, a hex entry and a
+// colour picker.
+//
+// The hex entry only takes hex digits and shows an error until it holds all
+// six, so a colour that cannot be stored is visible rather than silently
+// dropped; typing hex on a headset keyboard is error-prone, which is what the
+// picker is for. Edits go to the tint the editor was opened for (idx), not
+// whatever is selected when they land, and are saved to disk straight away so
+// they survive the app being closed.
+func colorField(state *data.AppState, idx, offset int, initial color.NRGBA) fyne.CanvasObject {
+	swatch := canvas.NewRectangle(initial)
+	swatch.SetMinSize(fyne.NewSize(28, 28))
+	swatch.CornerRadius = 4
+
+	entry := widget.NewEntry()
+	entry.SetText(fmt.Sprintf("%02X%02X%02X", initial.R, initial.G, initial.B))
+	entry.Validator = func(s string) error {
+		if _, ok := hexColor(s); !ok {
+			return errors.New("enter six hex digits, e.g. FF8800")
+		}
+		return nil
+	}
+
+	write := func(c color.NRGBA) {
+		if state.IsLoadingEntry || idx < 0 || idx >= len(state.CosmeticList.CosmeticEntries) {
+			return
+		}
+		ext := state.CosmeticList.CosmeticEntries[idx].CEntryExtData
+		if len(ext) < offset+12 {
+			return
+		}
+		for i, v := range []uint8{c.R, c.G, c.B} {
+			binary.LittleEndian.PutUint32(ext[offset+4*i:], math.Float32bits(float32(v)/255))
+		}
+		swatch.FillColor = c
+		swatch.Refresh()
+		state.AutoSave()
+	}
+
+	filtering := false
+	entry.OnChanged = func(s string) {
+		if filtering {
+			return
+		}
+		// Keep only hex digits, upper-cased, at most six of them.
+		clean := make([]byte, 0, 6)
+		for _, r := range strings.ToUpper(strings.TrimPrefix(s, "#")) {
+			if len(clean) < 6 && strings.ContainsRune("0123456789ABCDEF", r) {
+				clean = append(clean, byte(r))
+			}
+		}
+		if string(clean) != s {
+			filtering = true
+			entry.SetText(string(clean))
+			filtering = false
+		}
+		if c, ok := hexColor(string(clean)); ok {
+			write(c)
+		}
+	}
+
+	pick := widget.NewButtonWithIcon("Pick", theme.ColorPaletteIcon(), func() {
+		d := dialog.NewColorPicker("Pick a colour", "", func(c color.Color) {
+			n := color.NRGBAModel.Convert(c).(color.NRGBA)
+			entry.SetText(fmt.Sprintf("%02X%02X%02X", n.R, n.G, n.B)) // OnChanged saves it
+		}, state.Window)
+		d.Advanced = true
+		if c, ok := hexColor(entry.Text); ok {
+			d.SetColor(c)
+		}
+		d.Show()
+	})
+
+	return container.NewBorder(nil, nil, swatch, pick, entry)
 }
 
 // RefreshFilter re-filters the tint list to entries whose display name contains query.

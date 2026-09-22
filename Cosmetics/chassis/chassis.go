@@ -92,7 +92,7 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			return
 		}
 		entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
-		
+
 		entry.CEntry.AssetSymbol6 = data.HexToSymbol(sym6Entry.Text)
 		entry.CEntry.AssetSymbol12 = data.HexToSymbol(sym12Entry.Text)
 		state.AutoSave()
@@ -106,11 +106,17 @@ func LoadToEditor(state *data.AppState, realIdx int) {
 			widget.NewFormItem("1st Person Hash (Sym6)", sym6Entry),
 			widget.NewFormItem("3rd Person Hash (Sym12)", sym12Entry),
 		),
-		widget.NewButtonWithIcon("Replace Model from .blend", theme.UploadIcon(), func() {
-			c.AssetSymbol6 = data.HexToSymbol(sym6Entry.Text)
-			c.AssetSymbol12 = data.HexToSymbol(sym12Entry.Text)
-			importCustomChassis(state, &c)
-		}),
+	}
+	// Model import drives Blender and Python on the PC, and writes PC mesh
+	// formats, so it is offered in PC mode on the desktop only.
+	if state.Platform() == data.PlatformPC && !data.IsAndroid() {
+		state.CategoryEditor.Objects = append(state.CategoryEditor.Objects,
+			widget.NewButtonWithIcon("Replace Model from .blend", theme.UploadIcon(), func() {
+				c.AssetSymbol6 = data.HexToSymbol(sym6Entry.Text)
+				c.AssetSymbol12 = data.HexToSymbol(sym12Entry.Text)
+				importCustomChassis(state, &c)
+			}),
+		)
 	}
 	state.CategoryEditor.Refresh()
 
@@ -170,141 +176,139 @@ func importCustomChassis(state *data.AppState, existingChassis *data.CChassis) {
 }
 
 func doImportChassis(state *data.AppState, existingChassis *data.CChassis, variant string) {
-	blendPath, err := data.PickFile("3D Models (*.blend;*.glb)|*.blend;*.glb|All Files (*.*)|*.*")
-	if err != nil || blendPath == "" {
-		return
-	}
+	data.PickFileInPlace(state, []string{".blend", ".glb"}, func(blendPath string) {
 
-	outDir := filepath.Join(data.GetSettingsDir(), "Temp", "ChassisBake")
-	os.MkdirAll(outDir, 0755)
+		outDir := filepath.Join(data.GetSettingsDir(), "Temp", "ChassisBake")
+		os.MkdirAll(outDir, 0755)
 
-	scriptPath := filepath.Join(data.GetSettingsDir(), "Temp", "Scripts", "backend_chassis_builder.py")
+		scriptPath := filepath.Join(data.GetSettingsDir(), "Temp", "Scripts", "backend_chassis_builder.py")
 
-	loading := dialog.NewCustom("Processing Custom Chassis...", "Please wait, Blender is working...", widget.NewProgressBarInfinite(), state.Window)
-	loading.Show()
+		loading := dialog.NewCustom("Processing Custom Chassis...", "Please wait, Blender is working...", widget.NewProgressBarInfinite(), state.Window)
+		loading.Show()
 
-	go func() {
-		args := []string{scriptPath, blendPath, outDir, "--type", "chassis", "--target", variant}
-		if existingChassis != nil {
-			args = append(args, "--mesh-hash", fmt.Sprintf("%d", uint64(existingChassis.AssetSymbol12))) // 3rd person is now Sym12
-			args = append(args, "--rig-hash", fmt.Sprintf("%d", uint64(existingChassis.AssetSymbol6)))
-			args = append(args, "--mat-hash", fmt.Sprintf("%d", uint64(existingChassis.AssetSymbol11)))
-			args = append(args, "--tex-hash", fmt.Sprintf("%d", uint64(existingChassis.AssetSymbol5))) // Texture is now Sym5
-			
-			hash3PHex := fmt.Sprintf("%016x", uint64(existingChassis.AssetSymbol12))
-			baseMeshPath3P, err := state.FindBaseMesh(hash3PHex)
-			if err == nil {
-				args = append(args, "--base-mesh-3p", baseMeshPath3P)
-			}
-			
-			hash1PHex := fmt.Sprintf("%016x", uint64(existingChassis.AssetSymbol6))
-			baseMeshPath1P, err := state.FindBaseMesh(hash1PHex)
-			if err == nil {
-				args = append(args, "--base-mesh-1p", baseMeshPath1P)
-			}
-		}
-		
-		args = append(args, "--export-dir", filepath.Join(data.GetSettingsDir(), "input-pcvr"))
-		addonZipPath := filepath.Join(data.GetSettingsDir(), "Temp", "Scripts", "evr_mesh_importer.zip")
-		args = append(args, "--addon-zip", addonZipPath)
-		
-		cmd := exec.Command("python", args...)
-		output, err := cmd.CombinedOutput()
-		
-		fyne.Do(func() {
-			loading.Hide()
-		})
-
-		if err != nil {
-			fyne.Do(func() {
-				if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 99 {
-					dialog.ShowError(fmt.Errorf("Blender is not installed or not found in PATH.\nPlease install Blender to replace this model."), state.Window)
-				} else {
-					dialog.ShowError(fmt.Errorf("Blender processing failed:\n%s\nOutput:\n%s", err.Error(), string(output)), state.Window)
-				}
-			})
-			return
-		}
-
-		manifestPath := filepath.Join(outDir, "manifest.json")
-		b, err := os.ReadFile(manifestPath)
-		if err != nil {
-			fyne.Do(func() { dialog.ShowError(fmt.Errorf("Failed to read manifest: %v", err), state.Window) })
-			return
-		}
-
-		var mf Manifest
-		if err := json.Unmarshal(b, &mf); err != nil {
-			fyne.Do(func() { dialog.ShowError(fmt.Errorf("Failed to parse manifest: %v", err), state.Window) })
-			return
-		}
-
-		// Inject into CosmeticList if it's a new chassis
-		fyne.Do(func() {
-			if existingChassis == nil {
-				newEntry := data.CosmeticEntry{}
-				newEntry.CEntry = data.NewCDescriptor()
-				
-				// Base chassis settings
-				newEntry.CEntry.CosmeticTypeSymbol = int64(data.ToSymbol("chassis"))
-				intName := fmt.Sprintf("rwd_chassis_custom_%s", mf.MeshHashHex[:8])
-				newEntry.CEntry.InternalNameSymbol = int64(data.ToSymbol(intName))
-				newEntry.CEntry.InternalNameSymbol2 = newEntry.CEntry.InternalNameSymbol
-				copy(newEntry.CEntry.InternalNameString[:], []byte(intName))
-				copy(newEntry.CEntry.DisplayNameString[:], []byte("Custom Chassis"))
-				newEntry.CEntry.RaritySymbol = data.HexToSymbol(data.RarityLegendary)
-				
-				// Inject asset symbols
-				newEntry.CEntry.AssetSymbol5 = int64(mf.AssetSymbol12) // Python script maps texture to AssetSymbol12
-				newEntry.CEntry.AssetSymbol6 = int64(mf.AssetSymbol6)
-				newEntry.CEntry.AssetSymbol8 = -1
-				newEntry.CEntry.AssetSymbol9 = -1
-				newEntry.CEntry.AssetSymbol11 = int64(mf.AssetSymbol11)
-				newEntry.CEntry.AssetSymbol12 = int64(mf.AssetSymbol5) // Python script maps 3rd person to AssetSymbol5
-				newEntry.CEntry.AssetSymbol14 = -1
-				newEntry.CEntry.AssetSymbol15 = -1
-	
-				// Append to list
-				state.CosmeticList.CosmeticEntries = append(state.CosmeticList.CosmeticEntries, newEntry)
-				state.CosmeticList.ListCount = uint64(len(state.CosmeticList.CosmeticEntries))
-				state.CosmeticList.ListCount2 = state.CosmeticList.ListCount
-				
-				state.RefreshIndices()
-				RefreshFilter(state, searchEntry.Text)
-			} else {
-				entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
-				entry.CEntry.AssetSymbol5 = int64(mf.AssetSymbol12) // Texture
-				entry.CEntry.AssetSymbol11 = int64(mf.AssetSymbol11)
-				if variant == "1p" {
-					entry.CEntry.AssetSymbol6 = int64(mf.AssetSymbol6) // 1st Person
-				} else if variant == "3p" {
-					entry.CEntry.AssetSymbol12 = int64(mf.AssetSymbol5) // 3rd Person
-				} else {
-					entry.CEntry.AssetSymbol6 = int64(mf.AssetSymbol6) // 1st Person
-					entry.CEntry.AssetSymbol12 = int64(mf.AssetSymbol5) // 3rd Person
-				}
-				LoadToEditor(state, state.SelectedIndex)
-			}
-			
-			// Attempt to copy the files to the Settings/input-pcvr directory using Rad Hex folders
-			destGeoDirGPU := filepath.Join(data.GetSettingsDir(), "input-pcvr", "e642bfb1abcf76df") // CGMeshListResource GPU
-			destGeoDirPri := filepath.Join(data.GetSettingsDir(), "input-pcvr", "37102e4b27955a14") // Chassis Primary
-			destTexDir := filepath.Join(data.GetSettingsDir(), "input-pcvr", "4a4c32c49300b8a0")    // CTextureResource GPU
-			
-			os.MkdirAll(destGeoDirGPU, 0755)
-			os.MkdirAll(destGeoDirPri, 0755)
-			os.MkdirAll(destTexDir, 0755)
-			
-			// The python script now exports the GPU, Primary, Rig, and ALL texture DDS files directly 
-			// to the input-pcvr directories above using the TextureReplacer from the addon!
-
-			msg := "Custom Chassis added!\nThe mesh and textures were copied to Settings/input-pcvr.\nSave your dat file and repack the game."
+		go func() {
+			args := []string{scriptPath, blendPath, outDir, "--type", "chassis", "--target", variant}
 			if existingChassis != nil {
-				msg = "Chassis Model replaced!\nThe new mesh and textures were copied to Settings/input-pcvr to override the existing item.\nRepack your game."
+				args = append(args, "--mesh-hash", fmt.Sprintf("%d", uint64(existingChassis.AssetSymbol12))) // 3rd person is now Sym12
+				args = append(args, "--rig-hash", fmt.Sprintf("%d", uint64(existingChassis.AssetSymbol6)))
+				args = append(args, "--mat-hash", fmt.Sprintf("%d", uint64(existingChassis.AssetSymbol11)))
+				args = append(args, "--tex-hash", fmt.Sprintf("%d", uint64(existingChassis.AssetSymbol5))) // Texture is now Sym5
+
+				hash3PHex := fmt.Sprintf("%016x", uint64(existingChassis.AssetSymbol12))
+				baseMeshPath3P, err := state.FindBaseMesh(hash3PHex)
+				if err == nil {
+					args = append(args, "--base-mesh-3p", baseMeshPath3P)
+				}
+
+				hash1PHex := fmt.Sprintf("%016x", uint64(existingChassis.AssetSymbol6))
+				baseMeshPath1P, err := state.FindBaseMesh(hash1PHex)
+				if err == nil {
+					args = append(args, "--base-mesh-1p", baseMeshPath1P)
+				}
 			}
-			dialog.ShowInformation("Success", msg, state.Window)
-		})
-	}()
+
+			args = append(args, "--export-dir", filepath.Join(data.GetSettingsDir(), "input-pcvr"))
+			addonZipPath := filepath.Join(data.GetSettingsDir(), "Temp", "Scripts", "evr_mesh_importer.zip")
+			args = append(args, "--addon-zip", addonZipPath)
+
+			cmd := exec.Command("python", args...)
+			output, err := cmd.CombinedOutput()
+
+			fyne.Do(func() {
+				loading.Hide()
+			})
+
+			if err != nil {
+				fyne.Do(func() {
+					if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 99 {
+						dialog.ShowError(fmt.Errorf("Blender is not installed or not found in PATH.\nPlease install Blender to replace this model."), state.Window)
+					} else {
+						dialog.ShowError(fmt.Errorf("Blender processing failed:\n%s\nOutput:\n%s", err.Error(), string(output)), state.Window)
+					}
+				})
+				return
+			}
+
+			manifestPath := filepath.Join(outDir, "manifest.json")
+			b, err := os.ReadFile(manifestPath)
+			if err != nil {
+				fyne.Do(func() { dialog.ShowError(fmt.Errorf("Failed to read manifest: %v", err), state.Window) })
+				return
+			}
+
+			var mf Manifest
+			if err := json.Unmarshal(b, &mf); err != nil {
+				fyne.Do(func() { dialog.ShowError(fmt.Errorf("Failed to parse manifest: %v", err), state.Window) })
+				return
+			}
+
+			// Inject into CosmeticList if it's a new chassis
+			fyne.Do(func() {
+				if existingChassis == nil {
+					newEntry := data.CosmeticEntry{}
+					newEntry.CEntry = data.NewCDescriptor()
+
+					// Base chassis settings
+					newEntry.CEntry.CosmeticTypeSymbol = int64(data.ToSymbol("chassis"))
+					intName := fmt.Sprintf("rwd_chassis_custom_%s", mf.MeshHashHex[:8])
+					newEntry.CEntry.InternalNameSymbol = int64(data.ToSymbol(intName))
+					newEntry.CEntry.InternalNameSymbol2 = newEntry.CEntry.InternalNameSymbol
+					copy(newEntry.CEntry.InternalNameString[:], []byte(intName))
+					copy(newEntry.CEntry.DisplayNameString[:], []byte("Custom Chassis"))
+					newEntry.CEntry.RaritySymbol = data.HexToSymbol(data.RarityLegendary)
+
+					// Inject asset symbols
+					newEntry.CEntry.AssetSymbol5 = int64(mf.AssetSymbol12) // Python script maps texture to AssetSymbol12
+					newEntry.CEntry.AssetSymbol6 = int64(mf.AssetSymbol6)
+					newEntry.CEntry.AssetSymbol8 = -1
+					newEntry.CEntry.AssetSymbol9 = -1
+					newEntry.CEntry.AssetSymbol11 = int64(mf.AssetSymbol11)
+					newEntry.CEntry.AssetSymbol12 = int64(mf.AssetSymbol5) // Python script maps 3rd person to AssetSymbol5
+					newEntry.CEntry.AssetSymbol14 = -1
+					newEntry.CEntry.AssetSymbol15 = -1
+
+					// Append to list
+					state.CosmeticList.CosmeticEntries = append(state.CosmeticList.CosmeticEntries, newEntry)
+					state.CosmeticList.ListCount = uint64(len(state.CosmeticList.CosmeticEntries))
+					state.CosmeticList.ListCount2 = state.CosmeticList.ListCount
+
+					state.RefreshIndices()
+					RefreshFilter(state, searchEntry.Text)
+				} else {
+					entry := &state.CosmeticList.CosmeticEntries[state.SelectedIndex]
+					entry.CEntry.AssetSymbol5 = int64(mf.AssetSymbol12) // Texture
+					entry.CEntry.AssetSymbol11 = int64(mf.AssetSymbol11)
+					if variant == "1p" {
+						entry.CEntry.AssetSymbol6 = int64(mf.AssetSymbol6) // 1st Person
+					} else if variant == "3p" {
+						entry.CEntry.AssetSymbol12 = int64(mf.AssetSymbol5) // 3rd Person
+					} else {
+						entry.CEntry.AssetSymbol6 = int64(mf.AssetSymbol6)  // 1st Person
+						entry.CEntry.AssetSymbol12 = int64(mf.AssetSymbol5) // 3rd Person
+					}
+					LoadToEditor(state, state.SelectedIndex)
+				}
+
+				// Attempt to copy the files to the Settings/input-pcvr directory using Rad Hex folders
+				destGeoDirGPU := filepath.Join(data.GetSettingsDir(), "input-pcvr", "e642bfb1abcf76df") // CGMeshListResource GPU
+				destGeoDirPri := filepath.Join(data.GetSettingsDir(), "input-pcvr", "37102e4b27955a14") // Chassis Primary
+				destTexDir := filepath.Join(data.GetSettingsDir(), "input-pcvr", "4a4c32c49300b8a0")    // CTextureResource GPU
+
+				os.MkdirAll(destGeoDirGPU, 0755)
+				os.MkdirAll(destGeoDirPri, 0755)
+				os.MkdirAll(destTexDir, 0755)
+
+				// The python script now exports the GPU, Primary, Rig, and ALL texture DDS files directly
+				// to the input-pcvr directories above using the TextureReplacer from the addon!
+
+				msg := "Custom Chassis added!\nThe mesh and textures were copied to Settings/input-pcvr.\nSave your dat file and repack the game."
+				if existingChassis != nil {
+					msg = "Chassis Model replaced!\nThe new mesh and textures were copied to Settings/input-pcvr to override the existing item.\nRepack your game."
+				}
+				dialog.ShowInformation("Success", msg, state.Window)
+			})
+		}()
+	})
 }
 
 func copyFile(src, dst string) error {

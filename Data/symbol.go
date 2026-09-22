@@ -110,7 +110,7 @@ func ToSymbol(v any) Symbol {
 			if strings.HasPrefix(str, "0x") {
 				hexPart = str[2:]
 			}
-			if s, err := strconv.ParseUint(hexPart, 16, 64); err == nil {
+			if s, err := strconv.ParseInt(hexPart, 16, 64); err == nil {
 				return Symbol(s)
 			}
 		}
@@ -136,11 +136,11 @@ func HexToSymbol(s string) int64 {
 	if s == "" {
 		return -1
 	}
-	v, err := strconv.ParseUint(s, 16, 64)
+	v, err := strconv.ParseInt(s, 16, 64)
 	if err != nil {
 		return -1
 	}
-	return int64(v)
+	return v
 }
 
 // SymbolToHex formats a Symbol int64 as a lowercase hex string without "0x" prefix.
@@ -149,5 +149,10 @@ func SymbolToHex(v int64) string {
 	if v == -1 {
 		return ""
 	}
+	return fmt.Sprintf("%016x", uint64(v))
+}
+
+// SymbolToHexU formats a Symbol as a lowercase hex string without "0x" prefix.
+func SymbolToHexU(v Symbol) string {
 	return fmt.Sprintf("%016x", uint64(v))
 }
